@@ -660,8 +660,159 @@ def client_config(target: str, *, data_dir: str | None = None) -> str:
     return json.dumps({"mcpServers": {"scientific-discovery": server}}, indent=2)
 
 
+SERVER_KEY = "scientific-discovery"
+TOOL_NAMES = (
+    "discovery_find_opportunities", "discovery_analyze_pair", "discovery_search_entities",
+    "discovery_search_literature", "discovery_read_abstracts", "discovery_get_open_targets_evidence",
+    "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
+    "discovery_save_hypothesis", "discovery_list_hypotheses", "discovery_get_hypothesis",
+    "discovery_run_watchlist", "discovery_list_alerts", "discovery_status",
+)
+PROMPT_NAMES = ("investigate_disease", "write_hypothesis", "weekly_review")
+
+
+def claude_desktop_config_path() -> Path:
+    """Default location of Claude Desktop's config file on this OS.
+
+    Settings -> Developer -> Edit Config in Claude Desktop opens the file it really uses; pass that path
+    explicitly if it differs (e.g. some Windows Store installs).
+    """
+    import os
+
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming") / "Claude" / "claude_desktop_config.json"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "Claude" / "claude_desktop_config.json"
+
+
+def install_claude_desktop(config_path: str | Path | None = None, *, data_dir: str | None = None) -> dict:
+    """Add (or update) this server in Claude Desktop's config, keeping every other setting and server.
+
+    A timestamped backup is written next to the file before any change. Invalid JSON is never overwritten.
+    """
+    path = Path(config_path).expanduser() if config_path else claude_desktop_config_path()
+    entry = json.loads(client_config("claude-desktop", data_dir=data_dir))["mcpServers"][SERVER_KEY]
+    data: dict = {}
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    if text.strip():
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ServiceError(f"{path} is not valid JSON ({exc}). Fix or move it first; nothing was changed.") from exc
+        if not isinstance(data, dict):
+            raise ServiceError(f"{path} does not contain a JSON object; nothing was changed.")
+    servers = data.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ServiceError(f'"mcpServers" in {path} is not an object; nothing was changed.')
+    previous = servers.get(SERVER_KEY)
+    others = sorted(k for k in servers if k != SERVER_KEY)
+    if previous == entry:
+        return {"path": str(path), "backup": None, "status": "unchanged", "entry": entry, "other_servers": others}
+    backup = None
+    if text:
+        backup = path.with_name(f"{path.name}.bak-{_now()}")
+        backup.write_text(text, encoding="utf-8")
+    servers[SERVER_KEY] = entry
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {"path": str(path), "backup": str(backup) if backup else None,
+            "status": "updated" if previous is not None else "added", "entry": entry, "other_servers": others}
+
+
+def _launch_spec(config_path: str | Path | None) -> tuple[str, list[str], dict[str, str]]:
+    """The command a client would run: from a client config file, or this installation by default."""
+    import shutil
+
+    if config_path is None:
+        return sys.executable, ["-m", "discovery_agent", "mcp"], {}
+    path = Path(config_path).expanduser()
+    try:
+        servers = json.loads(path.read_text(encoding="utf-8")).get("mcpServers") or {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ServiceError(f"Cannot read {path}: {exc}") from exc
+    entry = servers.get(SERVER_KEY)
+    if not entry:
+        raise ServiceError(f'{path} has no "{SERVER_KEY}" server; run: discovery-agent mcp --install claude-desktop')
+    command = entry.get("command") or ""
+    if not (Path(command).is_file() or shutil.which(command)):
+        raise ServiceError(f"Command {command!r} from {path} was not found; use an absolute path.")
+    return command, list(entry.get("args") or []), dict(entry.get("env") or {})
+
+
+def self_test(config_path: str | Path | None = None, *, online: bool = False, timeout: float = 180.0) -> list[dict]:
+    """Start the server over stdio exactly as a client would and exercise it. Returns one row per check."""
+    import os
+
+    import anyio
+    from mcp import Client, StdioServerParameters
+
+    checks: list[dict] = []
+
+    def record(name: str, ok: bool, detail: str = "") -> None:
+        checks.append({"check": name, "ok": bool(ok), "detail": detail})
+
+    try:
+        command, args, env = _launch_spec(config_path)
+    except ServiceError as exc:
+        record("client config", False, str(exc))
+        return checks
+    record("client config", True, f"{command} {' '.join(args)}" + (f" (env: {', '.join(env)})" if env else ""))
+    params = StdioServerParameters(command=command, args=args, env={**os.environ, **env})
+
+    def text(result) -> str:
+        return "".join(getattr(c, "text", "") for c in result.content)
+
+    async def scenario() -> None:
+        with anyio.fail_after(timeout):
+            async with Client(params, read_timeout_seconds=timeout) as c:
+                record("server starts (stdio)", True)
+                names = {t.name for t in (await c.list_tools()).tools}
+                missing = sorted(set(TOOL_NAMES) - names)
+                record(f"{len(TOOL_NAMES)} tools", not missing, "missing: " + ", ".join(missing) if missing else "")
+                prompts = {p.name for p in (await c.list_prompts()).prompts}
+                record(f"{len(PROMPT_NAMES)} prompts", set(PROMPT_NAMES) <= prompts)
+                r = await c.call_tool("discovery_status", {})
+                ok = not r.is_error
+                detail = text(r)[:300]
+                if ok:
+                    status = json.loads(text(r))
+                    detail = f"data_dir={status['data_dir']}"
+                record("discovery_status (local database)", ok, detail)
+                if not online:
+                    return
+                probes = [
+                    ("Open Targets", "discovery_search_entities",
+                     {"text": "idiopathic pulmonary fibrosis", "entity": "disease", "limit": 3},
+                     lambda s: "EFO_0000768" in s),
+                    ("Europe PMC", "discovery_search_literature",
+                     {"query": 'TITLE:"idiopathic pulmonary fibrosis"', "source": "articles", "since": "",
+                      "max_results": 1}, lambda s: json.loads(s)["hit_count"] > 0),
+                    ("ClinicalTrials.gov", "discovery_search_clinical_trials",
+                     {"condition": "idiopathic pulmonary fibrosis", "term": "nintedanib"},
+                     lambda s: json.loads(s)["total"] > 0),
+                    ("ChEMBL + UniProt id", "discovery_get_chembl_profile", {"gene": "TERT"},
+                     lambda s: json.loads(s)["potent_compounds"] > 0),
+                ]
+                for label, tool, arguments, good in probes:
+                    try:
+                        r = await c.call_tool(tool, arguments)
+                        body = text(r)
+                        record(f"online: {label}", not r.is_error and good(body), "" if not r.is_error else body[:200])
+                    except Exception as exc:  # keep going: report every source
+                        record(f"online: {label}", False, str(exc)[:200])
+
+    try:
+        anyio.run(scenario)
+    except Exception as exc:
+        record("server session", False, f"{type(exc).__name__}: {exc}"[:300])
+    return checks
+
+
 def main() -> None:
     build_server().run("stdio")
 
 
-__all__ = ["DiscoveryService", "ServiceError", "build_server", "client_config", "main"]
+__all__ = ["DiscoveryService", "ServiceError", "build_server", "claude_desktop_config_path", "client_config",
+           "install_claude_desktop", "main", "self_test"]

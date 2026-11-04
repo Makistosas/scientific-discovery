@@ -132,7 +132,7 @@ def test_json_store_watch_cycle_and_caps(tmp_path, sources, settings):
                                                 "opportunity": 0.1}])
         store.mark_seen("w", [(f"item{i}-{j}", "publication") for j in range(200)])
         store.finish_run(run_id)
-    data = json.loads((tmp_path / "caps" / "w.json").read_text())
+    data = json.loads((tmp_path / "caps" / "w.json").read_text(encoding="utf-8"))
     assert len(data["runs"]) == JsonStore.MAX_RUNS
     assert len(data["opportunities"]) == JsonStore.MAX_OPPORTUNITY_RUNS
     assert len(data["seen"]) == JsonStore.MAX_SEEN

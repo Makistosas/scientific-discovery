@@ -195,8 +195,18 @@ raktas nereikalingas. Sistema veikia kaip vietinis **MCP serveris jūsų kompiut
     įrodymų rinkiniai, jūsų hipotezės, stebėsenos paleidimai ir perspėjimai, o Markdown ataskaitos – šalia
     duomenų bazės.
 
+> **Išsami diegimo instrukcija** (macOS, Windows, Linux; patikrinimas; problemų sprendimas):
+> [`docs/MCP_DIEGIMAS.md`](docs/MCP_DIEGIMAS.md). Norite, kad viską įdiegtų ir patikrintų **Codex** agentas?
+> Jam skirtas žingsnis po žingsnio planas yra [`docs/codex-install-claude-mcp.md`](docs/codex-install-claude-mcp.md).
+
 ```bash
 pip install -e ".[mcp]"
+```
+
+Patikrinkite įdiegimą. Turi būti `9/9 checks passed`:
+
+```bash
+discovery-agent mcp --self-test --online
 ```
 
 **Claude Code**: repozitorijoje jau yra [`.mcp.json`](.mcp.json). Atidarius projektą su Claude Code, serverį
@@ -206,11 +216,11 @@ pakaks patvirtinti. Kad serveris būtų pasiekiamas visuose projektuose:
 claude mcp add --scope user scientific-discovery -- discovery-agent mcp
 ```
 
-**Claude Desktop**: atspausdinkite konfigūraciją su tiksliu Python keliu. Ją įklijuokite į
-`claude_desktop_config.json` (Settings → Developer → Edit Config) ir perkraukite programą:
+**Claude Desktop**: įrašykite serverį į konfigūraciją. Komanda pasidaro atsarginę kopiją ir kitų serverių
+neliečia. Po to visiškai perkraukite programą:
 
 ```bash
-discovery-agent mcp --print-config claude-desktop
+discovery-agent mcp --install claude-desktop
 ```
 
 **Codex CLI (OpenAI)**: įklijuokite į `~/.codex/config.toml`:

@@ -52,14 +52,14 @@ def test_deployment_is_complete_and_secret_free():
     assert outcome["type"] == "user.define_outcome" and outcome["rubric"]["type"] == "text"
     criteria = re.findall(r"^\s*\d+\.", outcome["rubric"]["content"], re.M)
     assert 5 <= len(criteria) <= 10  # explicit, independently gradeable criteria
-    text = (ROOT / "deployments" / "weekly-discovery.md").read_text().lower()
+    text = (ROOT / "deployments" / "weekly-discovery.md").read_text(encoding="utf-8").lower()
     assert "token:" not in text and "api_key" not in text
 
 
 def test_environment_allows_every_host_the_pipeline_calls():
     from discovery_agent.http import HOST_MIN_INTERVAL
 
-    env = yaml.safe_load((ROOT / "environments" / "discovery-cloud.yaml").read_text())
+    env = yaml.safe_load((ROOT / "environments" / "discovery-cloud.yaml").read_text(encoding="utf-8"))
     net = env["config"]["networking"]
     assert net["type"] == "limited" and net["allow_package_managers"] is True
     assert set(HOST_MIN_INTERVAL) <= set(net["allowed_hosts"])
@@ -72,6 +72,6 @@ def test_watchlist_loads_and_prompt_paths_match():
     cfg = WatchConfig.load(ROOT / "watchlist.yaml")
     assert cfg.watches and cfg.language in ("lt", "en")
     _, lead_prompt = frontmatter(ROOT / "agents" / "discovery-lead.md")
-    store = yaml.safe_load((ROOT / "memory_stores" / "discovery-memory.yaml").read_text())
+    store = yaml.safe_load((ROOT / "memory_stores" / "discovery-memory.yaml").read_text(encoding="utf-8"))
     assert f"/mnt/memory/{store['name']}/state" in lead_prompt
     assert "managed_agents/watchlist.yaml" in lead_prompt
