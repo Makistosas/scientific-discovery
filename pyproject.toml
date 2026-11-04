@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scientific-discovery-agent"
+version = "0.1.0"
+description = "AI agent that mines Open Targets, Europe PMC, PubMed, bioRxiv, ChEMBL, UniProt, PDB, ClinicalTrials.gov and patents for under-explored therapeutic hypotheses."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "pydantic>=2.6",
+    "click>=8.1",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+ai = ["anthropic>=2.4"]
+dev = ["pytest>=8", "anthropic>=2.4"]
+
+[project.scripts]
+discovery-agent = "discovery_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: calls the real public APIs (run with: pytest -m live)"]
+addopts = "-m 'not live'"

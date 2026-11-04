@@ -1,0 +1,36 @@
+# Nuolatinės stebėsenos konfigūracija / continuous monitoring configuration.
+# Paleidimas:  discovery-agent watch config/watchlist.example.yaml          (nuolatinis ciklas)
+#              discovery-agent watch config/watchlist.example.yaml --once   (vienkartinis, cron/CI)
+
+output_dir: reports/watch          # ataskaitos: <output_dir>/<watch>/latest, runs/, digest-*.md
+database: data/discovery.sqlite    # agento atmintis: paleidimai, galimybės, matyti straipsniai, perspėjimai
+language: lt                       # lt | en
+interval_hours: 24                 # kas kiek valandų kartoti kiekvieną stebėjimą
+cache_ttl_hours: 12                # API atsakymų kešo galiojimas
+
+notify:
+  webhook_url: null                # Slack/Teams/Mattermost suderinamas "incoming webhook" URL (nebūtina)
+
+scoring:                           # nebūtina: balų svoriai (žr. ScoringWeights)
+  min_evidence: 0.25
+  parent_weight: 0.7
+
+watches:
+  - name: ipf
+    disease: idiopathic pulmonary fibrosis
+    top_k: 10            # kiek geriausių galimybių sekti
+    candidates: 200      # kiek Open Targets asociacijų peržiūrėti
+    enrich_k: 20         # kiek kandidatų praturtinti visais šaltiniais
+    ai: false            # true: Claude parašo hipotezes naujoms/pasikeitusioms galimybėms
+    investigate: false   # true: Claude tyrėjas pats ieško papildomų įrodymų (brangiau)
+    ai_top: 3
+    score_change_threshold: 0.05
+
+  - name: als
+    disease: amyotrophic lateral sclerosis
+    top_k: 10
+
+  - name: lrrk2-new-indications
+    target: LRRK2        # taikinio režimas: naujos indikacijos žinomam taikiniui
+    top_k: 10
+    interval_hours: 168  # kartą per savaitę
