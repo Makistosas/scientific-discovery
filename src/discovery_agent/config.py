@@ -16,6 +16,11 @@ def _default_cache_dir() -> Path:
     return Path(base) / "discovery-agent"
 
 
+def _default_data_dir() -> Path:
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / "discovery-agent"
+
+
 def _env_float(name: str, default: float) -> float:
     value = os.environ.get(name)
     try:
@@ -33,6 +38,7 @@ class Settings:
     """All tunables in one place. Use :meth:`from_env` to build from the environment."""
 
     cache_dir: Path = field(default_factory=_default_cache_dir)
+    data_dir: Path = field(default_factory=_default_data_dir)  # local database, reports, saved hypotheses
     cache_ttl_hours: float = 24.0
     http_timeout: float = 45.0
     http_retries: int = 4
@@ -51,6 +57,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             cache_dir=Path(os.environ.get("DISCOVERY_CACHE_DIR") or _default_cache_dir()),
+            data_dir=Path(os.environ.get("DISCOVERY_DATA_DIR") or _default_data_dir()),
             cache_ttl_hours=_env_float("DISCOVERY_CACHE_TTL_HOURS", 24.0),
             http_timeout=_env_float("DISCOVERY_HTTP_TIMEOUT", 45.0),
             http_retries=_env_int("DISCOVERY_HTTP_RETRIES", 4),

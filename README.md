@@ -181,6 +181,75 @@ PARN atveju jis pažymi „monogeninio potipio“ ribotumą ir sumažina pasitik
 * Kaina: AI taikomas tik `--ai-top` geriausioms galimybėms. Stebėsenos režime AI taikomas tik naujoms arba
   pasikeitusioms galimybėms. Be `--ai` sistema veikia visiškai be API rakto: hipotezes tada rašo taisyklės.
 
+## Vietinis MCP serveris: be API rakto, su jūsų prenumerata
+
+Jei turite **Claude Pro/Max** (Claude Desktop arba Claude Code) ar **ChatGPT** prenumeratą (Codex CLI), API
+raktas nereikalingas. Sistema veikia kaip vietinis **MCP serveris jūsų kompiuteryje**:
+
+* **Mąsto jūsų kliento modelis** (pvz., Claude Claude Desktop programoje), todėl naudojamas jūsų prenumeratos
+  limitas, o ne apmokestinamas API.
+* **Serveris pateikia duomenis ir atmintį**:
+  * visą atradimų konvejerį (9 šaltiniai, A–D įvertinimai);
+  * tyrimo įrankius (literatūra, santraukos, Open Targets įrodymai, ChEMBL, klinikiniai tyrimai);
+  * **vietinę SQLite duomenų bazę** (`~/.local/share/discovery-agent/discovery.sqlite`), kurioje saugomi
+    įrodymų rinkiniai, jūsų hipotezės, stebėsenos paleidimai ir perspėjimai, o Markdown ataskaitos – šalia
+    duomenų bazės.
+
+```bash
+pip install -e ".[mcp]"
+```
+
+**Claude Code**: repozitorijoje jau yra [`.mcp.json`](.mcp.json). Atidarius projektą su Claude Code, serverį
+pakaks patvirtinti. Kad serveris būtų pasiekiamas visuose projektuose:
+
+```bash
+claude mcp add --scope user scientific-discovery -- discovery-agent mcp
+```
+
+**Claude Desktop**: atspausdinkite konfigūraciją su tiksliu Python keliu. Ją įklijuokite į
+`claude_desktop_config.json` (Settings → Developer → Edit Config) ir perkraukite programą:
+
+```bash
+discovery-agent mcp --print-config claude-desktop
+```
+
+**Codex CLI (OpenAI)**: įklijuokite į `~/.codex/config.toml`:
+
+```bash
+discovery-agent mcp --print-config codex
+```
+
+**Naudojimas.** Tiesiog paprašykite, pvz.: *„Rask mažai ištirtas terapines galimybes idiopatinei plaučių
+fibrozei ir parašyk 3 hipotezes“*. Galima naudoti ir paruoštus užklausų šablonus (MCP prompts):
+
+* `investigate_disease` – visas ciklas ligai;
+* `write_hypothesis` – viena taikinio–ligos pora;
+* `weekly_review` – stebėsenos sąrašo peržiūra ir naujų pokyčių tyrimas.
+
+Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Claude Desktop – meniu „+“.
+
+| Įrankis | Ką daro |
+|---|---|
+| `discovery_find_opportunities` | Galimybių reitingas ligai arba naujos indikacijos taikiniui |
+| `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
+| `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
+| `discovery_get_open_targets_evidence`, `discovery_get_target_profile`, `discovery_get_chembl_profile`, `discovery_search_clinical_trials` | Įrodymai, taikinių profiliai, junginiai, klinikiniai tyrimai |
+| `discovery_search_entities` | Ligų, genų ir vaistų ID paieška |
+| `discovery_save_hypothesis` | Įrašo hipotezę į DB ir `.md` failą. Patikrina, ar cituojami įrodymų ID yra rinkinyje, o PMID, DOI ir NCT ID – ar tikrai egzistuoja |
+| `discovery_list_hypotheses`, `discovery_get_hypothesis` | Išsaugotos hipotezės |
+| `discovery_run_watchlist`, `discovery_list_alerts`, `discovery_status` | Stebėsena, perspėjimai ir būsena (stebėsenos sąrašas – `~/.local/share/discovery-agent/watchlist.yaml`) |
+
+**Reguliarus paleidimas be API.**
+* Deterministinė stebėsena (`discovery-agent watch …`, žr. žemiau) veikia per cron ir be jokio modelio.
+* AI peržiūrą galima paleisti per Claude Code neinteraktyviu režimu. Jis naudoja jūsų prisijungimą, todėl
+  sunaudoja prenumeratos limitą. Pavyzdys:
+
+  ```bash
+  claude -p "Atlik savaitinę peržiūrą su scientific-discovery įrankiais: discovery_run_watchlist, ištirk naujas galimybes ir išsaugok hipotezes." --allowedTools "mcp__scientific-discovery"
+  ```
+
+Duomenų katalogą galima pakeisti per `--data-dir` arba `DISCOVERY_DATA_DIR`.
+
 ## Claude Managed Agents versija (debesyje, be savo serverio)
 
 Katalogas [`managed_agents/`](managed_agents/README.md) aprašo tą patį agentą kaip **Claude Managed Agents**
@@ -212,7 +281,8 @@ Pirmas paleidimas sukuria pradinį vaizdą be perspėjimų. Konfigūracijos pavy
 
 | Kintamasis | Numatyta | Paskirtis |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | – | Reikalingas tik `--ai` / `--investigate` |
+| `ANTHROPIC_API_KEY` | – | Reikalingas tik `--ai` / `--investigate` (MCP serveriui nereikalingas) |
+| `DISCOVERY_DATA_DIR` | `~/.local/share/discovery-agent` | MCP serverio vietinė DB, ataskaitos, hipotezės |
 | `DISCOVERY_MODEL` | `claude-opus-5-5` | Claude modelis |
 | `DISCOVERY_EFFORT` | `high` | `low` / `medium` / `high` / `xhigh` / `max` |
 | `DISCOVERY_LANGUAGE` | `lt` | `lt` arba `en` |
@@ -261,6 +331,7 @@ src/discovery_agent/
   llm/            Claude: synthesizer, investigator (agentas su įrankiais), dossier
   monitor/        store (SQLite arba JSON atmintis), watcher (stebėsena, perspėjimai)
   managed.py      Claude Managed Agents: paleidimai, rezultatai, webhook'as
+  mcp_server.py   vietinis MCP serveris (Claude Desktop / Claude Code / Codex, be API rakto)
   report/         Markdown ataskaitos
   agent.py, cli.py
 ```
@@ -286,6 +357,11 @@ dossier. With `--investigate`, a tool-using Claude agent first queries the same 
 results and mechanistic links. It can only record findings whose references were actually returned by its
 tools. `discovery-agent watch` runs the agent on a schedule, diffs each run against the previous one, tracks
 new papers, preprints and trials, and sends alerts. Use `--lang en` for English reports.
+
+`discovery-agent mcp` runs a **local MCP server** (stdio) for Claude Desktop, Claude Code, Codex or any MCP
+client. The client's own model does the reasoning, so it runs on your Claude or ChatGPT subscription and needs
+no API key. The server provides the pipeline, the investigation tools and a local SQLite database of dossiers,
+saved hypotheses (with checks of cited evidence ids, PMIDs, DOIs and NCT ids), watchlist runs and alerts.
 
 `managed_agents/` deploys the same agent on **Claude Managed Agents**: a weekly scheduled deployment in which
 a lead agent (`claude-opus-5-5`) runs this pipeline from the mounted repository, delegates each new

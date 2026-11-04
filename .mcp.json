@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "scientific-discovery": {
+      "type": "stdio",
+      "command": "discovery-agent",
+      "args": ["mcp"]
+    }
+  }
+}

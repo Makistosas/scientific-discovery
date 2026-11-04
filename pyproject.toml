@@ -17,7 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = ["anthropic[webhooks]>=2.4"]
-dev = ["pytest>=8", "anthropic[webhooks]>=2.4"]
+mcp = ["mcp>=2.3,<3"]
+dev = ["pytest>=8", "anthropic[webhooks]>=2.4", "mcp>=2.3,<3"]
 
 [project.scripts]
 discovery-agent = "discovery_agent.cli:main"

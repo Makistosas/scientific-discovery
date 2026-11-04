@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS hypotheses (
   payload TEXT,
   PRIMARY KEY (id, created_at)
 );
+CREATE TABLE IF NOT EXISTS dossiers (
+  key TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  disease TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   watch TEXT NOT NULL,
@@ -135,6 +142,34 @@ class Store:
                 (hypothesis["id"], watch, key, now_iso(), hypothesis.get("generated_by"),
                  (hypothesis.get("confidence") or {}).get("level"), json.dumps(hypothesis, default=str)))
             self.conn.commit()
+
+    def list_hypotheses(self, query: str | None = None, limit: int = 20, offset: int = 0) -> tuple[int, list[dict]]:
+        where, args = "", []
+        if query:
+            where = "WHERE payload LIKE ? OR key LIKE ? OR id LIKE ?"
+            args = [f"%{query}%"] * 3
+        total = int(self.conn.execute(f"SELECT COUNT(*) FROM hypotheses {where}", args).fetchone()[0])
+        rows = self.conn.execute(
+            f"SELECT * FROM hypotheses {where} ORDER BY created_at DESC LIMIT ? OFFSET ?", [*args, limit, offset]
+        ).fetchall()
+        return total, [{**dict(r), "payload": json.loads(r["payload"] or "{}")} for r in rows]
+
+    def get_hypothesis(self, hypothesis_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM hypotheses WHERE id = ? ORDER BY created_at DESC LIMIT 1",
+                                (hypothesis_id,)).fetchone()
+        return {**dict(row), "payload": json.loads(row["payload"] or "{}")} if row else None
+
+    # -- dossiers (latest analysed evidence per target–disease pair) ----------
+    def save_dossier(self, key: str, symbol: str, disease: str, payload: dict) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO dossiers (key, symbol, disease, created_at, payload) VALUES (?,?,?,?,?)",
+                (key, symbol, disease, now_iso(), json.dumps(payload, default=str)))
+            self.conn.commit()
+
+    def get_dossier(self, key: str) -> dict | None:
+        row = self.conn.execute("SELECT payload FROM dossiers WHERE key = ?", (key,)).fetchone()
+        return json.loads(row["payload"]) if row else None
 
     def add_alerts(self, watch: str, alerts: list[dict]) -> None:
         with self._lock:
