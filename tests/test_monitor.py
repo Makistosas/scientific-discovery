@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -98,3 +99,41 @@ def test_store_mark_seen(tmp_path):
     assert store.mark_seen("w", [("a", "publication"), ("b", "trial")]) == ["a", "b"]
     assert store.mark_seen("w", [("a", "publication"), ("c", "trial")]) == ["c"]
     assert store.seen_count("w") == 3
+
+
+def test_json_store_watch_cycle_and_caps(tmp_path, sources, settings):
+    from discovery_agent.monitor import JsonStore, open_store
+
+    state = tmp_path / "memory" / "state"
+    cfg = WatchConfig(output_dir=tmp_path / "out", database=state, language="en",
+                      watches=[WatchItem(name="fib", disease="test fibrosis", top_k=5, enrich_k=5)])
+    watcher = Watcher(cfg, settings, sources=sources, agent_factory=lambda w: DiscoveryAgent(settings, sources=sources))
+    assert isinstance(watcher.store, JsonStore)
+    first = watcher.run_watch(cfg.watches[0])
+    assert first.error is None and [a["kind"] for a in first.alerts] == ["baseline"]
+    assert (state / "fib.json").exists()
+
+    # a fresh process (new session in the cloud) must see the previous run
+    conftest.PUB_COUNTS["GENEA"] = 250
+    try:
+        watcher2 = Watcher(cfg, settings, sources=sources,
+                           agent_factory=lambda w: DiscoveryAgent(settings, sources=sources))
+        second = watcher2.run_watch(cfg.watches[0])
+    finally:
+        conftest.PUB_COUNTS["GENEA"] = 3
+    assert "score_change" in [a["kind"] for a in second.alerts]
+    assert [a["kind"] for a in open_store(state).recent_alerts("fib")][0] == "score_change"
+    assert (state / "fib.json").stat().st_size < 100_000
+
+    store = JsonStore(tmp_path / "caps")
+    for i in range(JsonStore.MAX_RUNS + 5):
+        run_id = store.start_run("w", {})
+        store.save_opportunities(run_id, "w", [{"key": f"k{i}", "rank": 1, "symbol": "X", "disease": "d",
+                                                "opportunity": 0.1}])
+        store.mark_seen("w", [(f"item{i}-{j}", "publication") for j in range(200)])
+        store.finish_run(run_id)
+    data = json.loads((tmp_path / "caps" / "w.json").read_text())
+    assert len(data["runs"]) == JsonStore.MAX_RUNS
+    assert len(data["opportunities"]) == JsonStore.MAX_OPPORTUNITY_RUNS
+    assert len(data["seen"]) == JsonStore.MAX_SEEN
+    assert isinstance(open_store(tmp_path / "x.sqlite"), Store)

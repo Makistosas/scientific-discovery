@@ -181,6 +181,15 @@ PARN atveju jis pažymi „monogeninio potipio“ ribotumą ir sumažina pasitik
 * Kaina: AI taikomas tik `--ai-top` geriausioms galimybėms. Stebėsenos režime AI taikomas tik naujoms arba
   pasikeitusioms galimybėms. Be `--ai` sistema veikia visiškai be API rakto: hipotezes tada rašo taisyklės.
 
+## Claude Managed Agents versija (debesyje, be savo serverio)
+
+Katalogas [`managed_agents/`](managed_agents/README.md) aprašo tą patį agentą kaip **Claude Managed Agents**
+diegimą. Anthropic jį paleidžia kas pirmadienį savo debesyje. Vadovas (`claude-opus-5-5`) paleidžia šį
+konvejerį iš repozitorijos, naujas galimybes išdalija tyrėjams (`claude-sonnet-5-5`), patikrina jų
+nuorodas ir parašo hipotezes bei santrauką. Būsena tarp paleidimų laikoma Managed Agents atmintyje, o
+kiekvienam paleidimui taikomas $20 biudžetas. Resursai aprašyti failais ir diegiami su `ant apply`;
+`discovery-agent managed run|latest|pause|unpause|answer|serve-webhook` valdo paleidimus iš jūsų kompiuterio.
+
 ## Nuolatinė stebėsena
 
 `watch` režimas kiekvienam stebėjimui:
@@ -250,7 +259,8 @@ src/discovery_agent/
   pipeline.py     kandidatai → praturtinimas → balai
   hypothesis.py   hipotezės pagal taisykles
   llm/            Claude: synthesizer, investigator (agentas su įrankiais), dossier
-  monitor/        store (SQLite atmintis), watcher (stebėsena, perspėjimai)
+  monitor/        store (SQLite arba JSON atmintis), watcher (stebėsena, perspėjimai)
+  managed.py      Claude Managed Agents: paleidimai, rezultatai, webhook'as
   report/         Markdown ataskaitos
   agent.py, cli.py
 ```
@@ -276,3 +286,9 @@ dossier. With `--investigate`, a tool-using Claude agent first queries the same 
 results and mechanistic links. It can only record findings whose references were actually returned by its
 tools. `discovery-agent watch` runs the agent on a schedule, diffs each run against the previous one, tracks
 new papers, preprints and trials, and sends alerts. Use `--lang en` for English reports.
+
+`managed_agents/` deploys the same agent on **Claude Managed Agents**: a weekly scheduled deployment in which
+a lead agent (`claude-opus-5-5`) runs this pipeline from the mounted repository, delegates each new
+candidate to an investigator agent (`claude-sonnet-5-5`; dynamic workflows when there are many), verifies
+the findings, and writes hypotheses and a digest. State persists in a memory store, a rubric-graded outcome
+checks each run, and a $20 budget caps it. The resources are files synced with `ant apply`.

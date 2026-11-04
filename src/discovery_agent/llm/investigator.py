@@ -172,7 +172,7 @@ class Investigator:
     # ------------------------------------------------------------------
     def investigate(self, opp: Opportunity) -> InvestigationResult:
         client = self.client or make_client(self.settings)
-        session = _Session(self.sources, opp)
+        session = ToolSession(self.sources, opp)
         system = SYSTEM_PROMPT.format(max_tools=self.max_tool_calls)
         messages: list[dict] = [{"role": "user", "content": (
             "Opportunity dossier (JSON):\n<dossier>\n" + dossier_json(opp) + "\n</dossier>\n\n"
@@ -246,10 +246,17 @@ def _short(data: Any) -> str:
     return text if len(text) < 90 else text[:87] + "…"
 
 
-class _Session:
-    """Executes tools for one investigation and remembers which sources were seen."""
+class ToolSession:
+    """Executes tools for one investigation and remembers which sources were seen.
 
-    def __init__(self, sources: Sources, opp: Opportunity):
+    Also used by ``discovery-agent tool`` so that a Claude Managed Agent running in a
+    cloud sandbox can call exactly the same vetted tools from bash.
+    """
+
+    TOOL_NAMES = ("search_literature", "read_abstracts", "get_open_targets_evidence", "get_target_profile",
+                  "get_chembl_profile", "search_clinical_trials", "record_evidence")
+
+    def __init__(self, sources: Sources, opp: Opportunity | None):
         self.s = sources
         self.opp = opp
         self.seen_ids: set[str] = set()
@@ -257,7 +264,7 @@ class _Session:
         self.recorded: list[Evidence] = []
         self.rejected = 0
         # sources already in the dossier count as seen
-        for e in opp.evidence:
+        for e in (opp.evidence if opp else []):
             for r in e.references:
                 self._remember_ref(r.label, r.url)
 
@@ -329,6 +336,8 @@ class _Session:
         return {"records": out}
 
     def ot_evidence(self, a: OTEvidenceIn) -> dict:
+        if self.opp is None:
+            return {"error": "get_open_targets_evidence needs a target–disease pair (--target and --disease)."}
         if a.group not in EVIDENCE_GROUPS:
             return {"error": f"group must be one of {sorted(EVIDENCE_GROUPS)}"}
         rows = self.s.opentargets.pair_evidence(self.opp.disease.id, self.opp.target.ensembl_id,
@@ -396,4 +405,4 @@ class _Session:
         return {"recorded": True, "index": len(self.recorded), "dropped_references": invalid}
 
 
-__all__ = ["Investigator", "InvestigationResult", "TOOLS", "LLMError"]
+__all__ = ["Investigator", "InvestigationResult", "ToolSession", "TOOLS", "LLMError"]

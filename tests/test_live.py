@@ -31,3 +31,36 @@ def test_small_live_discovery(live_sources):
     assert opp.enriched and opp.evidence
     h = build_hypothesis(opp, "en")
     assert h.statement and h.alternative_explanations
+
+
+def test_managed_agents_files_match_official_schemas():
+    """Validate managed_agents/ against the published `ant apply` JSON schemas."""
+    from pathlib import Path
+
+    import requests
+    import yaml
+
+    from discovery_agent.config import Settings
+
+    jsonschema = pytest.importorskip("jsonschema")
+    root = Path(__file__).resolve().parents[1] / "managed_agents"
+    files = {"agent": ["agents/discovery-lead.md", "agents/evidence-investigator.md"],
+             "environment": ["environments/discovery-cloud.yaml"],
+             "memory_store": ["memory_stores/discovery-memory.yaml"],
+             "deployment": ["deployments/weekly-discovery.md"]}
+    for kind, paths in files.items():
+        url = f"https://platform.claude.com/schemas/ant/beta/{kind}.json"
+        resp = requests.get(url, headers={"User-Agent": Settings().user_agent}, timeout=30)
+        resp.raise_for_status()
+        validator = jsonschema.Draft202012Validator(resp.json())
+        for rel in paths:
+            text = (root / rel).read_text(encoding="utf-8")
+            if rel.endswith(".md"):
+                _, fm, body = text.split("---", 2)
+                data = yaml.safe_load(fm)
+                if kind == "agent":
+                    data["system"] = body.strip()
+            else:
+                data = yaml.safe_load(text)
+            errors = [e.message for e in validator.iter_errors(data)]
+            assert not errors, f"{rel}: {errors[:3]}"

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://platform.claude.com/schemas/ant/beta/environment.json
+name: discovery-cloud
+description: >-
+  Cloud sandbox for the scientific discovery agent. Limited networking: only the public biomedical APIs the
+  pipeline uses, plus PyPI for the Python dependencies.
+config:
+  type: cloud
+  networking:
+    type: limited
+    allow_package_managers: true
+    allowed_hosts:
+      - api.platform.opentargets.org   # Open Targets GraphQL
+      - www.ebi.ac.uk                  # Europe PMC + ChEMBL
+      - eutils.ncbi.nlm.nih.gov        # PubMed E-utilities
+      - api.biorxiv.org                # bioRxiv / medRxiv
+      - rest.uniprot.org               # UniProt
+      - search.rcsb.org                # RCSB PDB search
+      - data.rcsb.org                  # RCSB PDB data
+      - clinicaltrials.gov             # ClinicalTrials.gov API v2
+  packages:
+    type: packages
+    pip:
+      - requests>=2.31
+      - pydantic>=2.6
+      - click>=8.1
+      - PyYAML>=6.0
+      - setuptools>=68
+      - wheel

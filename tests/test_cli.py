@@ -55,3 +55,43 @@ def test_search(monkeypatch, tmp_path):
     patch_sources(monkeypatch)
     res = CliRunner().invoke(cli.main, ["--cache-dir", str(tmp_path), "search", "fibrosis"])
     assert res.exit_code == 0 and "EFO_0000001" in res.output
+
+
+def test_tool_command(monkeypatch, tmp_path):
+    patch_sources(monkeypatch)
+    runner = CliRunner()
+    res = runner.invoke(cli.main, ["--cache-dir", str(tmp_path), "tool", "--list"])
+    names = [json.loads(line)["name"] for line in res.output.splitlines()]
+    assert res.exit_code == 0 and "search_literature" in names and "record_evidence" not in names
+    res = runner.invoke(cli.main, ["--cache-dir", str(tmp_path), "tool", "search_literature",
+                                   '{"query": "GENEA", "source": "articles", "since": "", "max_results": 3}'])
+    assert res.exit_code == 0 and json.loads(res.output)["hit_count"] == 2
+    res = runner.invoke(cli.main, ["--cache-dir", str(tmp_path), "tool", "get_open_targets_evidence",
+                                   '{"group": "genetic"}', "-t", "GENEA", "-d", "test fibrosis"])
+    assert res.exit_code == 0 and json.loads(res.output)["n_rows"] == 2
+    res = runner.invoke(cli.main, ["--cache-dir", str(tmp_path), "tool", "get_open_targets_evidence",
+                                   '{"group": "genetic"}'])
+    assert res.exit_code == 2 and "needs a target" in res.output
+    res = runner.invoke(cli.main, ["--cache-dir", str(tmp_path), "tool", "record_evidence", "{}"])
+    assert res.exit_code != 0
+
+
+def test_watch_with_json_state_override(tmp_path, monkeypatch):
+    patch_sources(monkeypatch)
+    cfg = tmp_path / "watch.yaml"
+    cfg.write_text("language: en\nwatches:\n  - name: fib\n    disease: test fibrosis\n    top_k: 3\n    enrich_k: 3\n")
+    state = tmp_path / "mem" / "state"
+    res = CliRunner().invoke(cli.main, ["--cache-dir", str(tmp_path / "c"), "watch", str(cfg), "--once",
+                                        "--database", str(state), "--output-dir", str(tmp_path / "outputs")])
+    assert res.exit_code == 0, res.output
+    assert (state / "fib.json").exists() and (tmp_path / "outputs" / "fib" / "latest" / "report.md").exists()
+    res = CliRunner().invoke(cli.main, ["alerts", "--db", str(state)])
+    assert "baseline" in res.output
+
+
+def test_managed_commands_need_lock_file(tmp_path, monkeypatch):
+    from discovery_agent import managed as m
+
+    monkeypatch.setattr(m, "make_client", lambda: object())
+    res = CliRunner().invoke(cli.main, ["managed", "--lock", str(tmp_path / "missing.json"), "run", "--no-wait"])
+    assert res.exit_code != 0 and "ant apply" in res.output
