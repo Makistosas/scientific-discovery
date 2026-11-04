@@ -329,13 +329,51 @@ def managed_serve_webhook(host, port, out):
               default=None, help="Print a client configuration for this installation and exit.")
 @click.option("--data-dir", type=click.Path(path_type=Path), default=None,
               help="Local database/report directory (default ~/.local/share/discovery-agent).")
-def mcp_command(print_config, data_dir):
+@click.option("--install", "install_target", type=click.Choice(["claude-desktop"]), default=None,
+              help="Add this server to Claude Desktop's config (backup first, other servers kept) and exit.")
+@click.option("--self-test", "run_self_test", is_flag=True,
+              help="Start the server over stdio like a client would, run checks, exit non-zero on failure.")
+@click.option("--config-path", type=click.Path(path_type=Path), default=None,
+              help="Client config file for --install / --self-test (default: Claude Desktop's on this OS).")
+@click.option("--online", is_flag=True, help="With --self-test: also query Open Targets, Europe PMC, "
+                                             "ClinicalTrials.gov and ChEMBL through the server.")
+def mcp_command(print_config, data_dir, install_target, run_self_test, config_path, online):
     """Run the local MCP server (stdio) for Claude Desktop, Claude Code, Codex or any MCP client.
 
     The client's own model does the reasoning, so no Anthropic/OpenAI API key is needed.
+
+    \b
+    discovery-agent mcp --install claude-desktop          # write Claude Desktop's config
+    discovery-agent mcp --self-test --online              # test this installation
+    discovery-agent mcp --self-test --config-path FILE    # test exactly what a client config launches
     """
     from . import mcp_server
 
+    if install_target:
+        try:
+            res = mcp_server.install_claude_desktop(
+                config_path, data_dir=str(data_dir.expanduser().resolve()) if data_dir else None)
+        except mcp_server.ServiceError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"{res['status']}: {res['path']}")
+        if res["backup"]:
+            click.echo(f"backup:  {res['backup']}")
+        click.echo(f"command: {res['entry']['command']} {' '.join(res['entry']['args'])}")
+        if res["other_servers"]:
+            click.echo("kept other servers: " + ", ".join(res["other_servers"]))
+        if res["status"] != "unchanged":
+            click.echo("Now quit Claude Desktop completely and start it again.")
+        return
+    if run_self_test:
+        try:
+            checks = mcp_server.self_test(config_path, online=online)
+        except ImportError as exc:
+            raise click.ClickException("Needs the MCP SDK: pip install 'scientific-discovery-agent[mcp]'") from exc
+        for c in checks:
+            click.echo(f"{'PASS' if c['ok'] else 'FAIL'}  {c['check']}" + (f"  — {c['detail']}" if c["detail"] else ""))
+        failed = [c for c in checks if not c["ok"]]
+        click.echo(f"\n{len(checks) - len(failed)}/{len(checks)} checks passed")
+        sys.exit(1 if failed else 0)
     if print_config:
         click.echo(mcp_server.client_config(print_config, data_dir=str(data_dir.expanduser().resolve())
                                             if data_dir else None))

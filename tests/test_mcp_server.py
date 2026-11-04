@@ -162,3 +162,56 @@ def test_stdio_server_starts_and_lists_tools(tmp_path):
 
     names = asyncio.run(scenario())
     assert "discovery_find_opportunities" in names and "discovery_save_hypothesis" in names
+
+
+# --------------------------------------------------------------------------- install & self-test
+
+
+def test_install_claude_desktop_merges_backs_up_and_is_idempotent(tmp_path):
+    from discovery_agent.mcp_server import SERVER_KEY, install_claude_desktop
+
+    cfg = tmp_path / "Claude" / "claude_desktop_config.json"
+    res = install_claude_desktop(cfg)  # no file yet: created, nothing to back up
+    assert res["status"] == "added" and res["backup"] is None and cfg.exists()
+
+    cfg.write_text(json.dumps({"mcpServers": {"filesystem": {"command": "npx", "args": ["x"]}},
+                               "globalShortcut": "Ctrl+Space"}))
+    res = install_claude_desktop(cfg, data_dir=str(tmp_path / "data"))
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+    assert res["status"] == "added" and res["other_servers"] == ["filesystem"]
+    assert data["globalShortcut"] == "Ctrl+Space" and set(data["mcpServers"]) == {"filesystem", SERVER_KEY}
+    assert data["mcpServers"][SERVER_KEY]["env"]["DISCOVERY_DATA_DIR"] == str(tmp_path / "data")
+    assert json.loads(open(res["backup"], encoding="utf-8").read())["globalShortcut"] == "Ctrl+Space"
+
+    again = install_claude_desktop(cfg, data_dir=str(tmp_path / "data"))
+    assert again["status"] == "unchanged" and again["backup"] is None
+    assert install_claude_desktop(cfg)["status"] == "updated"
+
+
+def test_install_refuses_invalid_json(tmp_path):
+    from discovery_agent.mcp_server import install_claude_desktop
+
+    cfg = tmp_path / "claude_desktop_config.json"
+    cfg.write_text('{"mcpServers": {')
+    with pytest.raises(ServiceError, match="not valid JSON"):
+        install_claude_desktop(cfg)
+    assert cfg.read_text(encoding="utf-8") == '{"mcpServers": {'
+    cfg.write_text('{"mcpServers": []}')
+    with pytest.raises(ServiceError, match="not an object"):
+        install_claude_desktop(cfg)
+
+
+def test_self_test_offline_against_installed_config(tmp_path, monkeypatch):
+    from discovery_agent.mcp_server import install_claude_desktop, self_test
+
+    monkeypatch.setenv("DISCOVERY_CACHE_DIR", str(tmp_path / "cache"))
+    cfg = tmp_path / "claude_desktop_config.json"
+    install_claude_desktop(cfg, data_dir=str(tmp_path / "data"))
+    checks = self_test(cfg)
+    assert all(c["ok"] for c in checks), checks
+    assert [c["check"] for c in checks][:2] == ["client config", "server starts (stdio)"]
+    assert str(tmp_path / "data") in checks[-1]["detail"]
+
+    cfg.write_text(json.dumps({"mcpServers": {}}))
+    failed = self_test(cfg)
+    assert len(failed) == 1 and not failed[0]["ok"] and "--install" in failed[0]["detail"]

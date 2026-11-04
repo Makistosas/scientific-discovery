@@ -19,7 +19,7 @@ def test_discover_disease(tmp_path, monkeypatch):
                                         "--disease", "test fibrosis", "--top", "3", "--out", str(out)])
     assert res.exit_code == 0, res.output
     assert "GENEA" in res.output
-    data = json.loads((out / "result.json").read_text())
+    data = json.loads((out / "result.json").read_text(encoding="utf-8"))
     assert data["result"]["mode"] == "disease"
     assert (out / "report.md").exists()
 

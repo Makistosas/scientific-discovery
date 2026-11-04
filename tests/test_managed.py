@@ -133,9 +133,9 @@ def test_download_outputs_sanitises_paths_and_retries(tmp_path):
     client.beta.files.list = lagging
     saved = m.download_outputs(client, "sesn_1", tmp_path, sleep=lambda s: None)
     assert len(calls) == 2
-    rel = sorted(str(p.relative_to(tmp_path)) for p in saved)
+    rel = sorted(p.relative_to(tmp_path).as_posix() for p in saved)
     assert rel == ["DIGEST.md", "etc/x", "ipf/hypotheses/PARN.md"]
-    assert (tmp_path / "ipf/hypotheses/PARN.md").read_text() == "h"
+    assert (tmp_path / "ipf/hypotheses/PARN.md").read_text(encoding="utf-8") == "h"
 
 
 # --------------------------------------------------------------------------- following
@@ -192,7 +192,7 @@ def test_lock_file_lookup(tmp_path):
         "./agents/discovery-lead.md": {"id": "agent_1"},
         "./deployments/weekly-discovery.md": {"id": "depl_1"}}}))
     assert m.deployment_id(lock) == "depl_1"
-    data = json.loads(lock.read_text())
+    data = json.loads(lock.read_text(encoding="utf-8"))
     data["resources"]["./deployments/daily.md"] = {"id": "depl_2"}
     lock.write_text(json.dumps(data))
     with pytest.raises(m.ManagedError, match="Several"):
