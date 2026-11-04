@@ -324,6 +324,32 @@ def managed_serve_webhook(host, port, out):
         click.echo("stopped", err=True)
 
 
+@main.command("mcp")
+@click.option("--print-config", "print_config", type=click.Choice(["claude-desktop", "claude-code", "codex"]),
+              default=None, help="Print a client configuration for this installation and exit.")
+@click.option("--data-dir", type=click.Path(path_type=Path), default=None,
+              help="Local database/report directory (default ~/.local/share/discovery-agent).")
+def mcp_command(print_config, data_dir):
+    """Run the local MCP server (stdio) for Claude Desktop, Claude Code, Codex or any MCP client.
+
+    The client's own model does the reasoning, so no Anthropic/OpenAI API key is needed.
+    """
+    from . import mcp_server
+
+    if print_config:
+        click.echo(mcp_server.client_config(print_config, data_dir=str(data_dir.expanduser().resolve())
+                                            if data_dir else None))
+        return
+    if data_dir:
+        os.environ["DISCOVERY_DATA_DIR"] = str(data_dir.expanduser())
+    try:
+        server = mcp_server.build_server()
+    except ImportError as exc:
+        raise click.ClickException("The MCP server needs the MCP SDK: pip install 'scientific-discovery-agent[mcp]'") \
+            from exc
+    server.run("stdio")
+
+
 @main.command("cache-clear")
 @click.pass_context
 def cache_clear(ctx):
