@@ -2,7 +2,7 @@
   "mcpServers": {
     "scientific-discovery": {
       "type": "stdio",
-      "command": "discovery-agent",
+      "command": ".venv/Scripts/discovery-agent.exe",
       "args": ["mcp"]
     }
   }
