@@ -35,11 +35,12 @@ def test_small_live_discovery(live_sources):
 
 def test_managed_agents_files_match_official_schemas():
     """Validate managed_agents/ against the published `ant apply` JSON schemas."""
-    import json
-    import urllib.request
     from pathlib import Path
 
+    import requests
     import yaml
+
+    from discovery_agent.config import Settings
 
     jsonschema = pytest.importorskip("jsonschema")
     root = Path(__file__).resolve().parents[1] / "managed_agents"
@@ -49,7 +50,9 @@ def test_managed_agents_files_match_official_schemas():
              "deployment": ["deployments/weekly-discovery.md"]}
     for kind, paths in files.items():
         url = f"https://platform.claude.com/schemas/ant/beta/{kind}.json"
-        validator = jsonschema.Draft202012Validator(json.load(urllib.request.urlopen(url, timeout=30)))
+        resp = requests.get(url, headers={"User-Agent": Settings().user_agent}, timeout=30)
+        resp.raise_for_status()
+        validator = jsonschema.Draft202012Validator(resp.json())
         for rel in paths:
             text = (root / rel).read_text(encoding="utf-8")
             if rel.endswith(".md"):
