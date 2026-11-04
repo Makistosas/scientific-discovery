@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,14 +121,20 @@ def hypothesis(ctx, target, disease, out, ai, investigate, ai_top):
 @click.option("--once", is_flag=True, help="Run every watch once and exit (for cron/CI).")
 @click.option("--only", multiple=True, help="Only run these watch names.")
 @click.option("--poll", type=float, default=300.0, show_default=True, help="Seconds between schedule checks.")
+@click.option("--database", type=click.Path(path_type=Path), default=None,
+              help="Override the state store: *.sqlite file, or a directory for JSON state (e.g. a memory mount).")
+@click.option("--output-dir", type=click.Path(path_type=Path), default=None, help="Override output_dir.")
 @click.pass_context
-def watch(ctx, config, once, only, poll):
+def watch(ctx, config, once, only, poll, database, output_dir):
     """Continuously monitor diseases/targets from a YAML watchlist."""
     from .monitor import WatchConfig, Watcher
 
     cfg = WatchConfig.load(config)
     if only:
         cfg = cfg.model_copy(update={"watches": [w for w in cfg.watches if w.name in only]})
+    overrides = {k: v for k, v in (("database", database), ("output_dir", output_dir)) if v is not None}
+    if overrides:
+        cfg = cfg.model_copy(update=overrides)
     watcher = Watcher(cfg, ctx.obj["settings"], progress=_progress)
     if once:
         failed = False
@@ -159,13 +166,162 @@ def search(ctx, text, entity):
 @click.option("--watch", "watch_name", default=None)
 @click.option("--limit", type=int, default=30, show_default=True)
 def alerts(db, watch_name, limit):
-    """Show recent monitoring alerts."""
-    from .monitor import Store
+    """Show recent monitoring alerts (SQLite file or JSON state directory)."""
+    from .monitor import open_store
 
     if not db.exists():
         raise click.UsageError(f"No database at {db}")
-    for row in Store(db).recent_alerts(watch_name, limit):
+    for row in open_store(db).recent_alerts(watch_name, limit):
         click.echo(f"{row['created_at']}  [{row['watch']}] {row['kind']:16} {row['message']}")
+
+
+@main.command()
+@click.argument("name", required=False)
+@click.argument("input_json", required=False, default="{}")
+@click.option("--target", "-t", default=None, help="Target for pair-specific tools (get_open_targets_evidence).")
+@click.option("--disease", "-d", default=None, help="Disease for pair-specific tools.")
+@click.option("--list", "list_tools", is_flag=True, help="List tools and their input schemas.")
+@click.pass_context
+def tool(ctx, name, input_json, target, disease, list_tools):
+    """Run one investigation tool and print JSON (used by the Claude Managed Agent from bash).
+
+    Example: discovery-agent tool search_literature '{"query": "PARN AND fibrosis", "source": "articles",
+    "since": "", "max_results": 5}'
+    """
+    import json as _json
+
+    from .llm.investigator import TOOLS, ToolSession
+    from .models import Association, Opportunity
+
+    if list_tools or not name:
+        for t in TOOLS:
+            if t["name"] != "record_evidence":
+                click.echo(_json.dumps({"name": t["name"], "description": t["description"],
+                                        "input_schema": t["input_schema"]}, ensure_ascii=False))
+        return
+    if name not in ToolSession.TOOL_NAMES or name == "record_evidence":
+        raise click.UsageError(f"Unknown tool {name!r}; see --list")
+    try:
+        args = _json.loads(input_json)
+    except ValueError as exc:
+        raise click.UsageError(f"INPUT_JSON is not valid JSON: {exc}") from exc
+    sources = Sources.create(ctx.obj["settings"])
+    opp = None
+    if target and disease:
+        ot = sources.opentargets
+        d = ot.resolve_disease(disease)
+        t = ot.target(ot.resolve_target(target))
+        opp = Opportunity(target=t, disease=d, association=Association(
+            target_id=t.ensembl_id, symbol=t.symbol, disease_id=d.id, disease_name=d.name, score=0.0))
+    out, is_error = ToolSession(sources, opp).run(name, args)
+    click.echo(out)
+    if is_error:
+        sys.exit(2)
+
+
+@main.group()
+@click.option("--lock", type=click.Path(path_type=Path), default=Path("managed_agents/claude-lock.json"),
+              show_default=True, help="claude-lock.json written by `ant apply`.")
+@click.option("--deployment-id", default=None, help="Use this deployment instead of the one in the lock file.")
+@click.pass_context
+def managed(ctx, lock, deployment_id):
+    """Claude Managed Agents deployment: trigger runs, fetch results, answer paused calls."""
+    ctx.obj["lock"] = lock
+    ctx.obj["deployment_id"] = deployment_id
+
+
+def _managed_ctx(ctx):
+    from . import managed as m
+
+    try:
+        client = m.make_client()
+        dep = ctx.obj["deployment_id"] or m.deployment_id(ctx.obj["lock"])
+    except m.ManagedError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return m, client, dep
+
+
+@managed.command("run")
+@click.option("--wait/--no-wait", default=True, show_default=True, help="Follow the session until it is done.")
+@click.option("--out", type=click.Path(path_type=Path), default=Path("reports/managed"), show_default=True)
+@click.pass_context
+def managed_run(ctx, wait, out):
+    """Trigger the deployment now (smoke test) and download its outputs."""
+    m, client, dep = _managed_ctx(ctx)
+    try:
+        result = m.run_now(client, dep, wait=wait, dest=out, progress=_progress,
+                           on_text=lambda t: click.echo(t, err=True))
+    except m.ManagedError as exc:
+        raise click.ClickException(str(exc)) from exc
+    for path in result.get("files", []):
+        click.echo(str(path))
+
+
+@managed.command("latest")
+@click.option("--download/--no-download", default=True, show_default=True)
+@click.option("--out", type=click.Path(path_type=Path), default=Path("reports/managed"), show_default=True)
+@click.pass_context
+def managed_latest(ctx, download, out):
+    """Show the newest deployment run and download what it produced."""
+    m, client, dep = _managed_ctx(ctx)
+    try:
+        run = m.latest_run(client, dep)
+    except m.ManagedError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if run.error:
+        raise click.ClickException(f"{run.created_at}: run failed: {run.error.type}: {run.error.message}")
+    click.echo(f"{run.created_at}  {run.session_id}  {m.console_url(run.session_id)}")
+    if download:
+        for path in m.download_outputs(client, run.session_id, out / run.session_id):
+            click.echo(str(path))
+
+
+@managed.command("answer")
+@click.argument("session_id")
+@click.pass_context
+def managed_answer(ctx, session_id):
+    """Answer tool calls that paused for approval (deny unless DISCOVERY_AUTO_ALLOW allows them)."""
+    from . import managed as m
+
+    for event_id, result in m.answer_pending(m.make_client(), session_id):
+        click.echo(f"{event_id}: {result}")
+
+
+@managed.command("pause")
+@click.pass_context
+def managed_pause(ctx):
+    """Pause the weekly schedule (manual runs still work)."""
+    m, client, dep = _managed_ctx(ctx)
+    d = client.beta.deployments.pause(dep)
+    click.echo(f"{dep}: {d.status}")
+
+
+@managed.command("unpause")
+@click.pass_context
+def managed_unpause(ctx):
+    """Resume the weekly schedule from its next occurrence (missed runs are not backfilled)."""
+    m, client, dep = _managed_ctx(ctx)
+    d = client.beta.deployments.unpause(dep)
+    upcoming = ", ".join(str(t) for t in (d.schedule.upcoming_runs_at or [])[:3]) if d.schedule else ""
+    click.echo(f"{dep}: {d.status}  next: {upcoming}")
+
+
+@managed.command("serve-webhook")
+@click.option("--host", default="0.0.0.0", show_default=True)
+@click.option("--port", type=int, default=8080, show_default=True)
+@click.option("--out", type=click.Path(path_type=Path), default=Path("reports/managed"), show_default=True)
+def managed_serve_webhook(host, port, out):
+    """Webhook endpoint (behind HTTPS): answers paused calls, downloads finished runs' outputs."""
+    from . import managed as m
+
+    if not os.environ.get("ANTHROPIC_WEBHOOK_SIGNING_KEY"):
+        raise click.ClickException("Set ANTHROPIC_WEBHOOK_SIGNING_KEY to the whsec_ secret from Console -> Webhooks")
+    server = m.make_webhook_server(m.make_client(), host=host, port=port, dest=out)
+    click.echo(f"Listening on {host}:{port}", err=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("stopped", err=True)
 
 
 @main.command("cache-clear")

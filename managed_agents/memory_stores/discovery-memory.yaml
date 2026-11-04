@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://platform.claude.com/schemas/ant/beta/memory_store.json
+name: discovery-memory
+description: >-
+  Memory of the scientific discovery agent between weekly runs. state/<watch>.json is the discovery
+  pipeline's own state (previous rankings, publications/preprints/trials already seen, alerts) and is
+  maintained by `python -m discovery_agent watch --database <this mount>/state`; do not edit it by hand.
+  notes/<watch>.md holds the lead's notes: candidates investigated, conclusions with confidence, and dead
+  ends not worth repeating. No secrets.

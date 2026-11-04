@@ -105,7 +105,7 @@ class Store:
                  for r in rows])
             self.conn.commit()
 
-    def opportunities(self, run_id: int) -> dict[str, sqlite3.Row]:
+    def opportunities(self, run_id: int, watch: str | None = None) -> dict[str, sqlite3.Row]:
         rows = self.conn.execute("SELECT * FROM opportunities WHERE run_id = ? ORDER BY rank", (run_id,)).fetchall()
         return {r["key"]: r for r in rows}
 
@@ -151,3 +151,139 @@ class Store:
 
     def close(self) -> None:
         self.conn.close()
+
+
+class JsonStore:
+    """Same interface as :class:`Store`, persisted as one small JSON file per watch.
+
+    Designed for a Claude Managed Agents memory store mounted at ``/mnt/memory/<store>/``:
+    memories are small text files (<= 100 KB each), so every collection is capped and
+    each watch is written once per run (at :meth:`finish_run`), not on every change.
+    """
+
+    MAX_RUNS = 10
+    MAX_OPPORTUNITY_RUNS = 3
+    MAX_SEEN = 1500
+    MAX_ALERTS = 100
+    MAX_HYPOTHESES = 50
+
+    def __init__(self, directory: Path | str):
+        self.dir = Path(directory)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._cache: dict[str, dict] = {}
+        self._run_watch: dict[int, str] = {}
+
+    # -- file handling --------------------------------------------------------
+    def _path(self, watch: str) -> Path:
+        return self.dir / f"{watch}.json"
+
+    def _data(self, watch: str) -> dict:
+        if watch not in self._cache:
+            path = self._path(watch)
+            data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            for key, empty in (("runs", []), ("opportunities", {}), ("seen", []), ("alerts", []),
+                               ("hypotheses", [])):
+                data.setdefault(key, empty)
+            data["watch"] = watch
+            self._cache[watch] = data
+        return self._cache[watch]
+
+    def flush(self, watch: str) -> None:
+        data = self._data(watch)
+        data["runs"] = data["runs"][-self.MAX_RUNS:]
+        keep = {str(r["id"]) for r in data["runs"][-self.MAX_OPPORTUNITY_RUNS:]}
+        data["opportunities"] = {k: v for k, v in data["opportunities"].items() if k in keep}
+        data["seen"] = data["seen"][-self.MAX_SEEN:]
+        data["alerts"] = data["alerts"][-self.MAX_ALERTS:]
+        data["hypotheses"] = data["hypotheses"][-self.MAX_HYPOTHESES:]
+        self._path(watch).write_text(json.dumps(data, ensure_ascii=False, indent=0, default=str), encoding="utf-8")
+
+    # -- runs ---------------------------------------------------------------
+    def start_run(self, watch: str, params: dict) -> int:
+        with self._lock:
+            data = self._data(watch)
+            run_id = max((r["id"] for r in data["runs"]), default=0) + 1
+            data["runs"].append({"id": run_id, "watch": watch, "started_at": now_iso(), "finished_at": None,
+                                 "status": "running"})
+            self._run_watch[run_id] = watch
+            return run_id
+
+    def finish_run(self, run_id: int, status: str = "ok") -> None:
+        with self._lock:
+            watch = self._run_watch[run_id]
+            for r in self._data(watch)["runs"]:
+                if r["id"] == run_id:
+                    r["finished_at"], r["status"] = now_iso(), status
+            self.flush(watch)
+
+    def last_run(self, watch: str, status: str = "ok") -> dict | None:
+        runs = [r for r in self._data(watch)["runs"] if r["status"] == status]
+        return runs[-1] if runs else None
+
+    def previous_ok_run(self, watch: str, before_id: int) -> dict | None:
+        runs = [r for r in self._data(watch)["runs"] if r["status"] == "ok" and r["id"] < before_id]
+        return runs[-1] if runs else None
+
+    # -- opportunities --------------------------------------------------------
+    def save_opportunities(self, run_id: int, watch: str, rows: list[dict]) -> None:
+        with self._lock:
+            slim = [{k: r.get(k) for k in ("key", "rank", "symbol", "disease", "opportunity", "evidence", "gap",
+                                           "tractability", "safety")} for r in rows]
+            self._data(watch)["opportunities"][str(run_id)] = slim
+
+    def opportunities(self, run_id: int, watch: str | None = None) -> dict[str, dict]:
+        watch = watch or self._run_watch.get(run_id)
+        if watch is None:
+            return {}
+        rows = self._data(watch)["opportunities"].get(str(run_id), [])
+        return {r["key"]: r for r in rows}
+
+    # -- seen items -----------------------------------------------------------
+    def mark_seen(self, watch: str, items: list[tuple[str, str]]) -> list[str]:
+        with self._lock:
+            data = self._data(watch)
+            known = {s[0] for s in data["seen"]}
+            new = []
+            for item, kind in items:
+                if item not in known:
+                    known.add(item)
+                    data["seen"].append([item, kind, now_iso()])
+                    new.append(item)
+            return new
+
+    def seen_count(self, watch: str) -> int:
+        return len(self._data(watch)["seen"])
+
+    # -- hypotheses & alerts --------------------------------------------------
+    def save_hypothesis(self, watch: str, key: str, hypothesis: dict) -> None:
+        with self._lock:
+            self._data(watch)["hypotheses"].append({
+                "id": hypothesis.get("id"), "key": key, "created_at": now_iso(), "title": hypothesis.get("title"),
+                "generated_by": hypothesis.get("generated_by"),
+                "confidence": (hypothesis.get("confidence") or {}).get("level")})
+
+    def add_alerts(self, watch: str, alerts: list[dict]) -> None:
+        with self._lock:
+            self._data(watch)["alerts"].extend(
+                {"watch": watch, "created_at": now_iso(), "kind": a["kind"], "message": a["message"]} for a in alerts)
+
+    def recent_alerts(self, watch: str | None = None, limit: int = 50) -> list[dict]:
+        watches = [watch] if watch else sorted(p.stem for p in self.dir.glob("*.json"))
+        rows = [a for w in watches for a in self._data(w)["alerts"]]
+        # newest first; insertion order breaks ties between alerts created within the same second
+        ordered = sorted(enumerate(rows), key=lambda t: (t[1]["created_at"], t[0]), reverse=True)
+        return [a for _, a in ordered][:limit]
+
+    def close(self) -> None:
+        with self._lock:
+            for watch in list(self._cache):
+                self.flush(watch)
+
+
+def open_store(path: Path | str) -> "Store | JsonStore":
+    """``*.sqlite`` / ``*.db`` -> SQLite store; anything else is a directory of JSON files."""
+    p = Path(path)
+    if p.suffix.lower() in (".sqlite", ".sqlite3", ".db"):
+        return Store(p)
+    return JsonStore(p)

@@ -27,7 +27,7 @@ from ..models import Opportunity
 from ..report import render_digest
 from ..sources import Sources
 from ..sources.literature import disease_terms, gene_terms
-from .store import Store
+from .store import JsonStore, Store, open_store
 
 log = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class WatchRunSummary(BaseModel):
 
 class Watcher:
     def __init__(self, config: WatchConfig, settings: Settings | None = None, *, sources: Sources | None = None,
-                 store: Store | None = None, progress: Callable[[str], None] | None = None, llm_client=None,
+                 store: Store | JsonStore | None = None, progress: Callable[[str], None] | None = None, llm_client=None,
                  agent_factory: Callable[[WatchItem], DiscoveryAgent] | None = None,
                  sleep: Callable[[float], None] = time.sleep):
         base = settings or Settings.from_env()
@@ -96,7 +96,7 @@ class Watcher:
         self.config = config
         self.lang = normalize_lang(config.language)
         self.sources = sources or Sources.create(self.settings)
-        self.store = store or Store(config.database)
+        self.store = store or open_store(config.database)
         self.progress = progress or (lambda m: log.info(m))
         self.llm_client = llm_client
         self.weights = ScoringWeights.from_dict(config.scoring)
@@ -136,7 +136,8 @@ class Watcher:
                 alerts.append({"kind": "baseline", "message": tr(self.lang, "dig.first_run", n=len(opps))})
                 changed_keys = [o.key for o in opps]
             else:
-                diff_alerts, changed_keys = self.diff(self.store.opportunities(previous["id"]), opps, watch)
+                previous_opps = self.store.opportunities(previous["id"], watch.name)
+                diff_alerts, changed_keys = self.diff(previous_opps, opps, watch)
                 alerts += diff_alerts
             if watch.surveillance:
                 since = _parse_ts(previous["started_at"]) if previous else None
