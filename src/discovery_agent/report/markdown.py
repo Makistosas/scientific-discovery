@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterable
 
+from ..analysis.quality import check_hypothesis
 from ..i18n import tr
 from ..models import Evidence, Hypothesis, Opportunity, Stance
 
@@ -123,6 +124,13 @@ def render_hypothesis(h: Hypothesis, opp: Opportunity, lang: str | None = None, 
             f"_{tr(lang, 'rep.reliability_legend')}_", ""]
     if h.ungrounded_citations:
         out += [f"> ⚠ {tr(lang, 'rep.ungrounded', ids=', '.join(h.ungrounded_citations))}", ""]
+    q = check_hypothesis(h, opp, lang)
+    out += [f"{h3} {tr(lang, 'rep.h.quality')}", ""]
+    if q.problems:
+        out += [tr(lang, "rep.quality.revise", score=q.score), ""]
+        out += [f"- {'⛔' if c.severity == 'error' else '⚠'} {c.message}" for c in q.problems] + [""]
+    else:
+        out += [tr(lang, "rep.quality.ok", score=q.score), ""]
     if opp.warnings:
         out += [f"{h3} {tr(lang, 'rep.h.warnings')}", ""] + [f"- {_cell(w)}" for w in opp.warnings] + [""]
     return "\n".join(out)
