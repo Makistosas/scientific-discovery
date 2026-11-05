@@ -120,8 +120,14 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
   * `discovery-agent scan run` įvertina **visas** tiesiogines taikinio ir ligos poras. Balas: priežastiniai
     įrodymai × (1 − dėmesio įvertis). Dėmesio įvertį sudaro OT literatūros balas ir aukščiausia klinikinė
     stadija ligai ar jos potipiams.
-  * Paliekami tik baltymus koduojantys taikiniai ir konkrečios ligos.
-  * `--area respiratory` palieka vieną terapinę sritį, `--enrich 20` geriausias poras įvertina visu pipeline.
+  * Paliekami tik baltymus koduojantys taikiniai ir konkrečios ligos: be kiekybinių požymių matavimų, fenotipų
+    ir terapinių sričių.
+  * Ištirtumas paveldimas iš tėvinių ligų (× 0,7). Taip monogeninis gerai ištirtos ligos potipis neatrodo
+    nauju.
+  * `--min-lines 2` reikalauja bent dviejų nepriklausomų priežastinių įrodymų tipų. `--no-monogenic` atmeta
+    paveldimas ar įgimtas ligas, `--area respiratory` palieka vieną terapinę sritį, o `--enrich 20` geriausias
+    poras įvertina visu pipeline.
+  * 26.09 leidimas: 333 tūkst. porų su įrodymais ≥ 0,4, skenavimas trunka apie 20 s ir užima apie 3 GB RAM.
   * MCP įrankis `discovery_scan_results` rezultatus pateikia Claude.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.

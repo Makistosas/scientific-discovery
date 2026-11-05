@@ -34,7 +34,7 @@ def build_release(root):
                              "biotype": ["protein_coding"] * 4 + ["lncRNA"]}), root / "target" / "t.parquet")
     pq.write_table(pa.table({
         "id": ["EFO_A", "EFO_B", "EFO_TA", "EFO_SUB"], "name": ["disease a", "disease b", "area", "subtype a"],
-        "therapeuticAreas": [["EFO_TA"], ["EFO_TA"], [], ["EFO_TA"]],
+        "therapeuticAreas": [["EFO_TA"], ["EFO_TA", "OTAR_0000018"], [], ["EFO_TA"]],
         "ancestors": [["EFO_TA"], ["EFO_TA"], [], ["EFO_A", "EFO_TA"]],
         "descendants": [["EFO_SUB"], [], ["EFO_A", "EFO_B", "EFO_SUB"], []],
         "ontology": [{"isTherapeuticArea": False}, {"isTherapeuticArea": False}, {"isTherapeuticArea": True},
@@ -57,6 +57,8 @@ def test_scan_ranks_and_filters(tmp_path):
     assert b.evidence == pytest.approx(1 - (1 - 0.85 * 0.6) * (1 - 0.45 * 0.5), abs=1e-4)
     assert b.datatypes == {"somatic_mutation": 0.6, "affected_pathway": 0.5}
     assert rows[0].therapeutic_areas == ["area"]
+    assert all(r.disease_id != "EFO_B" for r in run_scan(tmp_path, min_evidence=0.3, monogenic=False))
+    assert [(r.symbol, r.disease_id) for r in run_scan(tmp_path, min_evidence=0.3, min_lines=2)] == [("G1", "EFO_B")]
     paths = write_results(rows, tmp_path / "out", "26.09")
     assert json.loads(paths["json"].read_text())["rows"][0]["symbol"] == "G1"
     assert "| 1 | G1 |" in paths["md"].read_text()

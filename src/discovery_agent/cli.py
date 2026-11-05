@@ -437,11 +437,15 @@ def scan_download(ctx, release, data_dir):
 @click.option("--min-evidence", type=float, default=0.4, show_default=True)
 @click.option("--max-attention", type=float, default=0.5, show_default=True)
 @click.option("--area", default=None, help="Keep one therapeutic area (substring, e.g. 'respiratory').")
+@click.option("--min-lines", type=int, default=1, show_default=True,
+              help="Minimum number of independent causal datatypes (score ≥ 0.1) that must agree.")
+@click.option("--no-monogenic", is_flag=True,
+              help="Drop 'genetic, familial or congenital' diseases (gene-therapy territory, not drug targets).")
 @click.option("--enrich", type=int, default=0, show_default=True,
               help="Re-score the top N pairs with the full pipeline (papers, trials, direction, safety …).")
 @click.option("--out", type=click.Path(path_type=Path), default=None, help="Output directory.")
 @click.pass_context
-def scan_run(ctx, release, data_dir, top, min_evidence, max_attention, area, enrich, out):
+def scan_run(ctx, release, data_dir, top, min_evidence, max_attention, area, min_lines, no_monogenic, enrich, out):
     """Rank every direct target–disease pair by causal evidence × (1 − attention proxy)."""
     from .scan import run_scan, write_results
 
@@ -449,10 +453,8 @@ def scan_run(ctx, release, data_dir, top, min_evidence, max_attention, area, enr
     root = _scan_root(ctx, data_dir) / release
     if not (root / "association_by_datatype_direct").exists():
         raise click.UsageError(f"No data in {root}. Run: discovery-agent scan download --release {release}")
-    rows = run_scan(root, min_evidence=min_evidence, top=top * 5 if area else top, max_attention=max_attention,
-                    progress=_progress)
-    if area:
-        rows = [r for r in rows if any(area.lower() in a.lower() for a in r.therapeutic_areas)][:top]
+    rows = run_scan(root, min_evidence=min_evidence, top=top, max_attention=max_attention, area=area,
+                    monogenic=not no_monogenic, min_lines=min_lines, progress=_progress)
     out = out or settings.data_dir / "scan" / f"{release}_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     paths = write_results(rows, out, release)
     click.echo(f"{len(rows)} pairs → {paths['md']}")

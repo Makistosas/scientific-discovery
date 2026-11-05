@@ -10,7 +10,8 @@
 ``scan`` computes, for every direct target–disease pair, the same causal evidence strength as the pipeline
 (noisy-OR over the causal datatypes, clinical and literature excluded) and an attention *proxy* (Open Targets
 literature score and the highest clinical stage for the disease or its subtypes), keeps protein-coding targets
-and specific diseases, and ranks by evidence × (1 − attention). The aggregation is vectorised with PyArrow
+and specific diseases (no quantitative-trait measurements or phenotypes; optionally no monogenic diseases),
+and ranks by evidence × (1 − attention). The aggregation is vectorised with PyArrow
 (``pip install -e ".[scan]"``). The top pairs can then be enriched with the full pipeline (papers, trials,
 patents, direction, tractability, safety) – the scan only decides where to look.
 """
@@ -31,6 +32,9 @@ from .sources.opentargets import CLINICAL_STAGE_RANK
 FTP = "{scheme}://ftp.ebi.ac.uk/pub/databases/opentargets/platform/{release}/output/{dataset}/"
 DATASETS = ("association_by_datatype_direct", "target", "disease", "clinical_target")
 DISEASE_PREFIXES = ("EFO_", "MONDO_", "Orphanet_", "DOID_")
+# therapeutic areas that are not diseases: quantitative traits, phenotypes, processes, procedures, animal disease
+NON_DISEASE_AREAS = {"EFO_0001444", "EFO_0000651", "GO_0008150", "EFO_0002571", "MONDO_0005583"}
+MONOGENIC_AREA = "OTAR_0000018"  # genetic, familial or congenital disease
 _STAGE = {**CLINICAL_STAGE_RANK, "WITHDRAWAL": 3.0, "PREAPPROVAL": 3.5}
 
 Progress = Callable[[str], None]
@@ -126,7 +130,7 @@ class ScanRow:
     datatypes: dict[str, float]
 
 
-def _diseases(root: Path):
+def _diseases(root: Path, *, monogenic: bool = True):
     import pyarrow.parquet as pq
 
     t = pq.read_table(root / "disease", columns=["id", "name", "therapeuticAreas", "ancestors", "descendants",
@@ -137,7 +141,9 @@ def _diseases(root: Path):
         areas[r["id"]] = r["therapeuticAreas"] or []
         ancestors[r["id"]] = r["ancestors"] or []
         is_ta = bool((r.get("ontology") or {}).get("isTherapeuticArea"))
-        if r["id"].startswith(DISEASE_PREFIXES) and not is_ta and len(r["descendants"] or []) <= 150:
+        real_areas = set(r["therapeuticAreas"] or []) - NON_DISEASE_AREAS
+        if (r["id"].startswith(DISEASE_PREFIXES) and not is_ta and real_areas
+                and len(r["descendants"] or []) <= 150 and (monogenic or MONOGENIC_AREA not in real_areas)):
             ok.add(r["id"])
     return names, areas, ancestors, ok
 
@@ -168,12 +174,12 @@ def _clinical(root: Path, ancestors: dict[str, list[str]]) -> dict[tuple[str, st
 
 
 def _aggregate(root: Path, weights: dict[str, float], progress: Progress):
-    """Per pair: log Π(1 − w·s) over causal datatypes, literature score, and the causal scores themselves."""
+    """Per pair: Σ log(1 − w·s) over causal datatypes and the literature score (one file at a time)."""
     import pyarrow as pa
     import pyarrow.compute as pc
     import pyarrow.parquet as pq
 
-    keep = list(weights) + ["literature"]
+    keep = pa.array(list(weights) + ["literature"])
     w_keys = pa.array(list(weights))
     w_vals = pa.array([float(v) for v in weights.values()])
     parts = []
@@ -181,21 +187,48 @@ def _aggregate(root: Path, weights: dict[str, float], progress: Progress):
     for i, f in enumerate(files, 1):
         progress(f"  aggregating {i}/{len(files)}")
         t = pq.read_table(f, columns=["diseaseId", "targetId", "aggregationValue", "associationScore"])
-        t = t.filter(pc.is_in(t["aggregationValue"], value_set=pa.array(keep)))
-        idx = pc.index_in(t["aggregationValue"], value_set=w_keys)
-        w = pc.fill_null(pc.take(w_vals, idx), 0.0)
+        t = t.filter(pc.is_in(t["aggregationValue"], value_set=keep))
+        w = pc.fill_null(pc.take(w_vals, pc.index_in(t["aggregationValue"], value_set=w_keys)), 0.0)
         s = pc.min_element_wise(pc.max_element_wise(t["associationScore"], 0.0), 1.0)
         log1m = pc.ln(pc.max_element_wise(pc.subtract(1.0, pc.multiply(w, s)), 1e-12))
         lit = pc.if_else(pc.equal(t["aggregationValue"], "literature"), s, 0.0)
-        parts.append(pa.table({"diseaseId": t["diseaseId"], "targetId": t["targetId"], "dt": t["aggregationValue"],
-                               "s": s, "log1m": log1m, "lit": lit}))
-    full = pa.concat_tables(parts)
-    agg = full.group_by(["diseaseId", "targetId"]).aggregate([("log1m", "sum"), ("lit", "max")])
-    return full, agg
+        lines = pc.cast(pc.and_(pc.greater(w, 0.0), pc.greater_equal(s, 0.1)), pa.int64())
+        part = pa.table({"diseaseId": t["diseaseId"], "targetId": t["targetId"], "log1m": log1m, "lit": lit,
+                         "lines": lines})
+        parts.append(part.group_by(["diseaseId", "targetId"]).aggregate(
+            [("log1m", "sum"), ("lit", "max"), ("lines", "sum")]))
+    both = pa.concat_tables(parts)  # a pair may be split across files
+    out = both.group_by(["diseaseId", "targetId"]).aggregate(
+        [("log1m_sum", "sum"), ("lit_max", "max"), ("lines_sum", "sum")])
+    names = {"log1m_sum_sum": "log1m", "lit_max_max": "lit", "lines_sum_sum": "lines"}
+    return out.rename_columns([names.get(c, c) for c in out.column_names])
+
+
+def _breakdown(root: Path, rows: list["ScanRow"], weights: dict[str, float]) -> None:
+    """Per-datatype scores for the kept pairs only (second, filtered pass)."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    want = {(r.disease_id, r.target_id): r for r in rows}
+    diseases = pa.array(sorted({r.disease_id for r in rows}))
+    for f in sorted((root / "association_by_datatype_direct").glob("*.parquet")):
+        t = pq.read_table(f, columns=["diseaseId", "targetId", "aggregationValue", "associationScore"])
+        t = t.filter(pc.is_in(t["diseaseId"], value_set=diseases))
+        for d, tg, dt, s in zip(*(t[c].to_pylist() for c in t.column_names)):
+            r = want.get((d, tg))
+            if r is not None and dt in weights:
+                r.datatypes[dt] = round(max(0.0, min(1.0, s)), 3)
 
 
 def run_scan(root: Path, *, min_evidence: float = 0.4, top: int = 200, max_attention: float = 0.5,
-             weights: dict[str, float] | None = None, progress: Progress | None = None) -> list[ScanRow]:
+             parent_weight: float = 0.7, monogenic: bool = True, min_lines: int = 1, area: str | None = None,
+             weights: dict[str, float] | None = None,
+             progress: Progress | None = None) -> list[ScanRow]:
+    """Rank every direct pair. Attention is inherited from ancestor diseases (× ``parent_weight``) so that a
+    monogenic subtype of a heavily studied disease (BRCA1 in a familial breast-cancer subtype) or a subtype of a
+    disease with an approved drug on the target (TTR in a hereditary amyloidosis subtype) is not mistaken for
+    an unexplored opportunity – the same guard the pipeline applies with parent-disease publications."""
     _require_pyarrow()
     import pyarrow.compute as pc
 
@@ -203,38 +236,42 @@ def run_scan(root: Path, *, min_evidence: float = 0.4, top: int = 200, max_atten
     root = Path(root).expanduser()
     weights = weights or dict(CAUSAL_WEIGHTS)
     progress("reading diseases, targets, clinical precedence")
-    names, areas, ancestors, ok_diseases = _diseases(root)
+    names, areas, ancestors, ok_diseases = _diseases(root, monogenic=monogenic)
     targets = _targets(root)
     clinical = _clinical(root, ancestors)
-    full, agg = _aggregate(root, weights, progress)
+    agg = _aggregate(root, weights, progress)
 
-    evidence = pc.subtract(1.0, pc.exp(agg["log1m_sum"]))
-    mask = pc.greater_equal(evidence, min_evidence)
-    agg = agg.filter(mask)
-    evidence = evidence.filter(mask)
+    lit_all = agg.filter(pc.greater(agg["lit"], 0.0))
+    literature = dict(zip(zip(lit_all["targetId"].to_pylist(), lit_all["diseaseId"].to_pylist()),
+                          lit_all["lit"].to_pylist()))
+    evidence = pc.subtract(1.0, pc.exp(agg["log1m"]))
+    mask = pc.and_(pc.greater_equal(evidence, min_evidence), pc.greater_equal(agg["lines"], min_lines))
+    agg, evidence = agg.filter(mask), evidence.filter(mask)
+    progress(f"{len(agg)} pairs with evidence ≥ {min_evidence} from ≥ {min_lines} causal datatype(s)")
     rows: list[ScanRow] = []
-    for d, t, e, lit in zip(agg["diseaseId"].to_pylist(), agg["targetId"].to_pylist(), evidence.to_pylist(),
-                            agg["lit_max"].to_pylist()):
+    for d, t, e in zip(agg["diseaseId"].to_pylist(), agg["targetId"].to_pylist(), evidence.to_pylist()):
         if d not in ok_diseases or t not in targets:
             continue
+        if area and not any(area.lower() in names.get(a, a).lower() for a in areas.get(d, [])):
+            continue
+        lit = literature.get((t, d), 0.0)
+        stage_rank = _STAGE.get(clinical.get((t, d)) or "", 0.0)
         stage = clinical.get((t, d))
-        a_clin = _STAGE.get(stage or "", 0.0) / 4.0
-        attention = 1.0 - (1.0 - a_clin) * (1.0 - (lit or 0.0))
+        for a in ancestors.get(d, []):
+            lit = max(lit, parent_weight * literature.get((t, a), 0.0))
+            a_stage = clinical.get((t, a))
+            if a_stage and parent_weight * _STAGE.get(a_stage, 0.0) > stage_rank:
+                stage_rank, stage = parent_weight * _STAGE.get(a_stage, 0.0), a_stage
+        attention = 1.0 - (1.0 - stage_rank / 4.0) * (1.0 - lit)
         if attention > max_attention:
             continue
         rows.append(ScanRow(target_id=t, symbol=targets[t], disease_id=d, disease=names.get(d, d),
                             therapeutic_areas=[names.get(a, a) for a in areas.get(d, [])],
-                            evidence=round(e, 4), literature=round(lit or 0.0, 4), max_stage=stage,
+                            evidence=round(e, 4), literature=round(lit, 4), max_stage=stage,
                             attention=round(attention, 4), score=round(e * (1.0 - attention), 4), datatypes={}))
     rows.sort(key=lambda r: -r.score)
     rows = rows[:top]
-    # datatype breakdown for the kept pairs only
-    want = {(r.disease_id, r.target_id): r for r in rows}
-    for d, t, dt, s in zip(full["diseaseId"].to_pylist(), full["targetId"].to_pylist(), full["dt"].to_pylist(),
-                           full["s"].to_pylist()):
-        r = want.get((d, t))
-        if r is not None and dt in weights:
-            r.datatypes[dt] = round(s, 3)
+    _breakdown(root, rows, weights)
     progress(f"{len(rows)} pairs kept")
     return rows
 
