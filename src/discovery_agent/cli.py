@@ -408,6 +408,56 @@ def benchmark(ctx, diseases, size, out, as_json):
     click.echo(text)
 
 
+def _service(ctx, data_dir: Path | None):
+    from .mcp_server import DiscoveryService
+
+    settings = ctx.obj["settings"]
+    if data_dir:
+        settings = settings.with_overrides(data_dir=data_dir)
+    return DiscoveryService(settings)
+
+
+@main.command()
+@click.argument("hypothesis_id")
+@click.argument("status", type=click.Choice(["proposed", "testing", "supported", "refuted", "parked"]))
+@click.option("--note", default=None, help="What was found and where.")
+@click.option("--data-dir", type=click.Path(path_type=Path), default=None, help="Local database directory.")
+@click.pass_context
+def feedback(ctx, hypothesis_id, status, note, data_dir):
+    """Record your verdict on a saved hypothesis (refuted/parked ones are no longer reviewed)."""
+    from .mcp_server import ServiceError
+
+    try:
+        res = _service(ctx, data_dir).record_feedback(hypothesis_id, status, note)
+    except ServiceError as exc:
+        raise click.UsageError(str(exc)) from exc
+    click.echo(f"{res['id']}: {res['status']} ({len(res['history'])} entries)")
+
+
+@main.command()
+@click.option("--id", "hypothesis_id", default=None, help="Review only this hypothesis.")
+@click.option("--limit", type=int, default=10, show_default=True)
+@click.option("--data-dir", type=click.Path(path_type=Path), default=None, help="Local database directory.")
+@click.pass_context
+def review(ctx, hypothesis_id, limit, data_dir):
+    """Re-analyse saved hypotheses and list the stale ones (new papers, trials, stage, direction, …)."""
+    from .mcp_server import ServiceError
+
+    try:
+        res = _service(ctx, data_dir).review_hypotheses(hypothesis_id=hypothesis_id, limit=limit, progress=_progress)
+    except ServiceError as exc:
+        raise click.UsageError(str(exc)) from exc
+    for item in res["items"]:
+        if item.get("error"):
+            click.echo(f"✗ {item['id']}: {item['error']}")
+            continue
+        mark = "⚠ stale" if item["stale"] else ("· baseline set" if item["baseline"] == "set now" else "✓ current")
+        click.echo(f"{mark:16} {item['id']}  {item['target']} – {item['disease']}")
+        for r in item["reasons"]:
+            click.echo(f"{'':18}{r}")
+    click.echo(f"{res['reviewed']} reviewed, {res['stale']} stale")
+
+
 @main.command("cache-clear")
 @click.pass_context
 def cache_clear(ctx):

@@ -31,9 +31,10 @@ from pydantic import Field
 from . import __version__
 from .agent import DiscoveryAgent
 from .analysis.quality import check_markdown, context_from_opportunity
+from .monitor.review import CLOSED, FEEDBACK_STATUSES, compare, snapshot_from_opportunity
 from .config import Settings
 from .hypothesis import build_hypothesis, clean_function_text
-from .i18n import normalize_lang
+from .i18n import normalize_lang, tr
 from .llm.dossier import build_dossier
 from .llm.investigator import TOOLS, ToolSession
 from .models import Association, Opportunity
@@ -126,7 +127,8 @@ class DiscoveryService:
                    "disease": opp.disease.name, "disease_id": opp.disease.id,
                    "evidence_ids": [e.id for e in opp.evidence], "references": refs,
                    "dossier": build_dossier(opp, draft), "draft_markdown": render_hypothesis(draft, opp, lang),
-                   "quality_context": context_from_opportunity(opp)}
+                   "quality_context": context_from_opportunity(opp),
+                   "snapshot": snapshot_from_opportunity(opp)}
         self.store.save_dossier(opp.key, opp.target.symbol, opp.disease.name, payload)
         return payload
 
@@ -161,10 +163,12 @@ class DiscoveryService:
                 "opportunities": [self._opp_row(i, o, agent.lang) for i, o in enumerate(run.result.opportunities, 1)],
                 "_ranking_markdown": ranking_table(run.result.opportunities, agent.lang)}
 
-    @staticmethod
-    def _opp_row(rank: int, o: Opportunity, lang: str) -> dict:
+    def _opp_row(self, rank: int, o: Opportunity, lang: str) -> dict:
         s, a = o.scores, o.attention
-        return {"rank": rank, "target": o.target.symbol, "target_id": o.target.ensembl_id,
+        fb = self.store.feedback_for_key(o.key)
+        return {"feedback": {"status": fb["status"], "note": fb["note"], "hypothesis_id": fb["hypothesis_id"]}
+                if fb else None,
+                "rank": rank, "target": o.target.symbol, "target_id": o.target.ensembl_id,
                 "disease": o.disease.name, "disease_id": o.disease.id, "opportunity": s.opportunity,
                 "evidence": s.evidence, "gap": s.gap, "tractability": s.tractability, "safety_risk": s.safety_risk,
                 "direction": o.direction.modulation.value, "direction_confidence": o.direction.confidence,
@@ -339,7 +343,8 @@ class DiscoveryService:
                   "disease_id": disease_id, "modulation": modulation, "confidence": {"level": confidence},
                   "generated_by": generated_by, "markdown": markdown, "path": str(path),
                   "dossier_found": bool(dossier), "cited_evidence_ids": cited, "unknown_evidence_ids": unknown_ids,
-                  "verification": verification, "quality": quality}
+                  "verification": verification, "quality": quality,
+                  "snapshot": (dossier or {}).get("snapshot"), "snapshot_at": (dossier or {}).get("snapshot") and created}
         self.store.save_hypothesis("mcp", key, record)
         warnings = []
         if not dossier:
@@ -372,13 +377,69 @@ class DiscoveryService:
                 "problems": [c.model_dump() for c in rep.problems],
                 "passed": [c.id for c in rep.checks if c.ok]}
 
+    # -- feedback & review -----------------------------------------------------
+    def record_feedback(self, hypothesis_id: str, status: str, note: str | None = None) -> dict:
+        if status not in FEEDBACK_STATUSES:
+            raise ServiceError(f"status must be one of {', '.join(FEEDBACK_STATUSES)}")
+        row = self.store.get_hypothesis(hypothesis_id)
+        if not row:
+            raise ServiceError(f"No hypothesis {hypothesis_id!r}. Use discovery_list_hypotheses to find ids.")
+        self.store.add_feedback(hypothesis_id, row["key"], status, note)
+        return {"id": hypothesis_id, "status": status, "history": self.store.feedback(hypothesis_id)}
+
+    def review_hypotheses(self, *, hypothesis_id: str | None = None, limit: int = 10, language: str | None = None,
+                          progress: Progress | None = None) -> dict:
+        """Re-analyse saved hypotheses and report which are stale (new papers, trials, stage, direction, …)."""
+        lang = normalize_lang(language or self.settings.language)
+        ids = [(hypothesis_id, None)] if hypothesis_id else self.store.hypothesis_ids()
+        results, alerts, reviewed = [], [], 0
+        for hid, _ in ids:
+            if reviewed >= limit:
+                break
+            row = self.store.get_hypothesis(hid)
+            if not row:
+                raise ServiceError(f"No hypothesis {hid!r}.")
+            fb = self.store.latest_feedback(hid)
+            if fb and fb["status"] in CLOSED and not hypothesis_id:
+                continue
+            p = row["payload"]
+            symbol = p.get("target") or p.get("target_symbol")
+            disease_id = p.get("disease_id")
+            last = self.store.last_review(hid)
+            baseline = (last or {}).get("snapshot") or p.get("snapshot")
+            if progress:
+                progress(f"review {hid}: {symbol} – {disease_id}")
+            try:
+                _, opp = self._pair(symbol, disease_id, lang, progress)
+            except ServiceError as exc:
+                results.append({"id": hid, "error": str(exc)})
+                continue
+            reviewed += 1
+            self._remember(opp, lang)
+            now = snapshot_from_opportunity(opp)
+            reasons = compare(baseline, now, lang) if baseline else []
+            self.store.add_review(hid, bool(reasons), reasons, now)
+            item = {"id": hid, "target": symbol, "disease": opp.disease.name, "stale": bool(reasons),
+                    "baseline": "saved" if baseline else "set now", "reasons": [r["message"] for r in reasons],
+                    "feedback": fb["status"] if fb else None}
+            results.append(item)
+            if reasons:
+                alerts.append({"kind": "hypothesis_stale", "message": tr(
+                    lang, "stale.alert", id=hid, symbol=symbol, disease=opp.disease.name,
+                    reasons=" ".join(r["message"] for r in reasons)), "payload": {"id": hid, "reasons": reasons}})
+        if alerts:
+            self.store.add_alerts("review", alerts)
+        return {"reviewed": reviewed, "stale": sum(1 for r in results if r.get("stale")), "items": results}
+
     def list_hypotheses(self, query: str | None = None, limit: int = 20, offset: int = 0) -> dict:
         total, rows = self.store.list_hypotheses(query, limit, offset)
         items = [{"id": r["id"], "created_at": r["created_at"], "title": r["payload"].get("title"),
                   "target": r["payload"].get("target") or r["payload"].get("target_symbol"),
                   "disease": r["payload"].get("disease") or r["payload"].get("disease_name"),
                   "confidence": r["confidence"], "generated_by": r["generated_by"], "source": r["watch"],
-                  "path": r["payload"].get("path")} for r in rows]
+                  "path": r["payload"].get("path"),
+                  "feedback": (self.store.latest_feedback(r["id"]) or {}).get("status"),
+                  "stale": bool((self.store.last_review(r["id"]) or {}).get("stale"))} for r in rows]
         return {"total": total, "count": len(items), "offset": offset, "items": items,
                 "has_more": total > offset + len(items),
                 "next_offset": offset + len(items) if total > offset + len(items) else None}
@@ -387,7 +448,8 @@ class DiscoveryService:
         row = self.store.get_hypothesis(hypothesis_id)
         if not row:
             raise ServiceError(f"No hypothesis {hypothesis_id!r}. Use discovery_list_hypotheses to find ids.")
-        return {"id": row["id"], "created_at": row["created_at"], "source": row["watch"], **row["payload"]}
+        return {"id": row["id"], "created_at": row["created_at"], "source": row["watch"], **row["payload"],
+                "feedback": self.store.feedback(hypothesis_id), "last_review": self.store.last_review(hypothesis_id)}
 
     # -- monitoring -----------------------------------------------------------
     def watchlist_path(self, config_path: str | None = None) -> Path:
@@ -478,6 +540,9 @@ def _md_find(res: dict) -> str:
             extra.append(f"clinical stage for this disease: {o['max_clinical_stage']}")
         if o["warnings"]:
             extra.append("warnings: " + "; ".join(o["warnings"][:3]))
+        if o.get("feedback"):
+            fb = o["feedback"]
+            extra.append(f"earlier verdict: {fb['status']} ({fb['hypothesis_id']})" + (f" – {fb['note']}" if fb["note"] else ""))
         if extra:
             lines.append(f"- **{o['target']}**: " + " · ".join(extra))
     lines += ["", f"Full report: `{res['report_path']}`",
@@ -746,6 +811,33 @@ def build_server(service: DiscoveryService | None = None):
         """Return one saved hypothesis with its Markdown text and reference verification."""
         return _dump(call(lambda: svc().get_hypothesis(hypothesis_id)))
 
+    @server.tool(name="discovery_record_feedback", annotations=writes, structured_output=False)
+    def record_feedback(
+        hypothesis_id: Annotated[str, Field(description="Id from discovery_list_hypotheses")],
+        status: Annotated[Literal["proposed", "testing", "supported", "refuted", "parked"], Field(
+            description="supported/refuted after an experiment or new data; testing while it is being tested; "
+                        "parked to stop reviewing it")],
+        note: Annotated[str | None, Field(max_length=2000, description="What was found and where")] = None,
+    ) -> str:
+        """Record the user's verdict on a saved hypothesis. Refuted and parked hypotheses are no longer reviewed,
+        and the latest verdict is shown whenever the same target–disease pair appears again. Only record what the
+        user said; never guess an outcome."""
+        return _dump(call(lambda: svc().record_feedback(hypothesis_id, status, note)))
+
+    @server.tool(name="discovery_review_hypotheses", annotations=writes, structured_output=False)
+    async def review_hypotheses(
+        ctx: Context,
+        hypothesis_id: Annotated[str | None, Field(description="Review only this hypothesis")] = None,
+        limit: Annotated[int, Field(ge=1, le=30, description="Maximum hypotheses to re-analyse")] = 10,
+        language: Annotated[Literal["lt", "en"] | None, Field()] = None,
+    ) -> str:
+        """Re-analyse saved hypotheses (newest first, skipping refuted/parked) and report which are stale since
+        they were saved or last reviewed: new papers or trials, stopped trials, a drug at a later stage, a
+        changed direction of modulation, a new genetic liability, new negative-result papers or a large score
+        change. Stale hypotheses also become alerts. ~10–30 s per hypothesis on a cold cache."""
+        return _dump(await blocking(ctx, lambda p: svc().review_hypotheses(
+            hypothesis_id=hypothesis_id, limit=limit, language=language, progress=p)))
+
     @server.tool(name="discovery_run_watchlist", annotations=writes, structured_output=False)
     async def run_watchlist(
         ctx: Context,
@@ -845,7 +937,8 @@ TOOL_NAMES = (
     "discovery_search_literature", "discovery_read_abstracts", "discovery_read_full_text",
     "discovery_get_open_targets_evidence",
     "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
-    "discovery_check_hypothesis", "discovery_save_hypothesis", "discovery_list_hypotheses", "discovery_get_hypothesis",
+    "discovery_check_hypothesis", "discovery_save_hypothesis", "discovery_list_hypotheses",
+    "discovery_record_feedback", "discovery_review_hypotheses", "discovery_get_hypothesis",
     "discovery_run_watchlist", "discovery_list_alerts", "discovery_status",
 )
 PROMPT_NAMES = ("investigate_disease", "write_hypothesis", "weekly_review")
