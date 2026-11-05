@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field, ValidationError
 
+from ..analysis.sentences import full_text_sentences
 from ..config import Settings
 from ..models import Aspect, Evidence, EvidenceType, Opportunity, Reference, Reliability, Stance
 from ..sources import Sources
@@ -65,6 +66,11 @@ class ReadAbstractsIn(BaseModel):
     ids: list[str] = Field(max_length=8)
 
 
+class ReadFullTextIn(BaseModel):
+    id: str = Field(description="PMID or PMCID")
+    terms: list[str] = Field(default_factory=list, max_length=6)
+
+
 class OTEvidenceIn(BaseModel):
     group: str
 
@@ -108,6 +114,13 @@ TOOLS = [
     _tool("read_abstracts",
           "Fetch titles and abstracts for up to 8 records by PMID or Europe PMC id (e.g. PPR123456).",
           {"ids": {"type": "array", "items": {"type": "string"}}}),
+    _tool("read_full_text",
+          "Read the open-access full text of one article (PMID or PMCID) and return the sentences that mention the "
+          "current target (or the given terms), grouped by section, with negative-result flags and "
+          "perturbation→outcome hints. Use it to check methods, effect sizes and null results behind an abstract.",
+          {"id": {"type": "string", "description": "PMID or PMCID, e.g. 33398303 or PMC7781346."},
+           "terms": {"type": "array", "items": {"type": "string"},
+                     "description": "Search terms; pass [] to use the current target symbol and name."}}),
     _tool("get_open_targets_evidence",
           "Open Targets evidence rows for the current target–disease pair, for one evidence group. Includes "
           "direction of effect (directionOnTarget LoF/GoF, directionOnTrait risk/protect), confidence, p-values, "
@@ -253,7 +266,7 @@ class ToolSession:
     cloud sandbox can call exactly the same vetted tools from bash.
     """
 
-    TOOL_NAMES = ("search_literature", "read_abstracts", "get_open_targets_evidence", "get_target_profile",
+    TOOL_NAMES = ("search_literature", "read_abstracts", "read_full_text", "get_open_targets_evidence", "get_target_profile",
                   "get_chembl_profile", "search_clinical_trials", "record_evidence")
 
     def __init__(self, sources: Sources, opp: Opportunity | None):
@@ -284,6 +297,7 @@ class ToolSession:
         handlers = {
             "search_literature": (SearchLiteratureIn, self.search_literature),
             "read_abstracts": (ReadAbstractsIn, self.read_abstracts),
+            "read_full_text": (ReadFullTextIn, self.read_full_text),
             "get_open_targets_evidence": (OTEvidenceIn, self.ot_evidence),
             "get_target_profile": (GeneIn, self.target_profile),
             "get_chembl_profile": (GeneIn, self.chembl_profile),
@@ -334,6 +348,30 @@ class ToolSession:
                         "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else
                         f"https://europepmc.org/article/{r.get('source')}/{r.get('id')}"})
         return {"records": out}
+
+    def read_full_text(self, a: ReadFullTextIn) -> dict:
+        ident = a.id.strip().upper()
+        if re.match(r"^PMC\d+$", ident):
+            pmcid, pmid = ident, None
+        elif re.match(r"^\d+$", ident):
+            pmid = ident
+            pmcid, is_oa = self.s.europepmc.pmcid_for(pmid)
+            if not pmcid or not is_oa:
+                return {"error": f"PMID {pmid} has no open-access full text in Europe PMC; use read_abstracts."}
+        else:
+            return {"error": "Provide a PMID (digits) or a PMCID such as PMC7781346."}
+        terms = [t for t in a.terms if t.strip()]
+        if not terms and self.opp is not None:
+            terms = [self.opp.target.symbol] + ([self.opp.target.name] if len(self.opp.target.name) > 4 else [])
+        if not terms:
+            return {"error": "Give terms to look for (no current target)."}
+        context = [self.opp.disease.name, *self.opp.disease.synonyms[:2]] if self.opp is not None else []
+        try:
+            xml = self.s.europepmc.full_text_xml(pmcid)
+        except Exception as exc:
+            return {"error": f"full text of {pmcid} is not available: {str(exc)[:120]}"}
+        res = full_text_sentences(xml, terms, context)
+        return {"pmcid": pmcid, "pmid": pmid, "url": f"https://europepmc.org/article/PMC/{pmcid}", "terms": terms, **res}
 
     def ot_evidence(self, a: OTEvidenceIn) -> dict:
         if self.opp is None:

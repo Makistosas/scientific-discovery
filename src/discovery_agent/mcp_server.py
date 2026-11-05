@@ -251,6 +251,8 @@ class DiscoveryService:
             "alternatives": [{"title": a.title, "plausibility": a.plausibility, "test": a.how_to_test}
                              for a in draft.alternative_explanations],
             "draft_confidence": {"level": draft.confidence.level.value, "reasons": draft.confidence.rationale},
+            "text_mining": [{k: x[k] for k in ("pmid", "year", "section", "text", "negative", "cue")}
+                            for x in opp.text_sentences[:5]],
             "papers": papers, "literature_query": query, "warnings": opp.warnings,
             "full_dossier": "discovery_analyze_pair (same pair) returns the full graded evidence table",
         }
@@ -420,7 +422,7 @@ research attention, investigate them, and keep hypotheses in a local database.
 Typical workflow: discovery_find_opportunities (rank candidates) -> discovery_investigate_pair (ONE call:
 compact graded dossier with evidence ids E1, E2, …, direction incl. QTL colocalisation, locus conflicts,
 stopped trials and key abstract sentences) -> fill remaining gaps with discovery_search_literature,
-discovery_read_abstracts, discovery_get_open_targets_evidence, discovery_get_target_profile,
+discovery_read_abstracts, discovery_read_full_text, discovery_get_open_targets_evidence, discovery_get_target_profile,
 discovery_get_chembl_profile, discovery_search_clinical_trials -> write the hypothesis yourself ->
 discovery_save_hypothesis. For recurring monitoring use discovery_run_watchlist and discovery_list_alerts.
 
@@ -617,6 +619,19 @@ def build_server(service: DiscoveryService | None = None):
     ) -> str:
         return _dump(call(lambda: svc().run_tool("read_abstracts", {"ids": ids})))
 
+    @server.tool(name="discovery_read_full_text", annotations=ro, structured_output=False,
+                 description=tool_descriptions["read_full_text"])
+    def read_full_text(
+        id: Annotated[str, Field(min_length=2, description="PMID or PMCID, e.g. '33398303' or 'PMC7781346'")],
+        target: Annotated[str | None, Field(description="Gene symbol whose sentences to extract")] = None,
+        disease: Annotated[str | None, Field(description="Disease used to rank sentences")] = None,
+        terms: Annotated[list[str] | None, Field(max_length=6, description="Extra search terms")] = None,
+    ) -> str:
+        args = {"id": id, "terms": list(terms or ([target] if target and not disease else []))}
+        if target and disease:
+            return _dump(call(lambda: svc().run_tool("read_full_text", args, target=target, disease=disease)))
+        return _dump(call(lambda: svc().run_tool("read_full_text", args)))
+
     @server.tool(name="discovery_get_open_targets_evidence", annotations=ro, structured_output=False)
     def ot_evidence(
         target: Annotated[str, Field(description="Gene symbol or Ensembl id")],
@@ -781,7 +796,8 @@ def client_config(target: str, *, data_dir: str | None = None) -> str:
 SERVER_KEY = "scientific-discovery"
 TOOL_NAMES = (
     "discovery_find_opportunities", "discovery_analyze_pair", "discovery_investigate_pair", "discovery_search_entities",
-    "discovery_search_literature", "discovery_read_abstracts", "discovery_get_open_targets_evidence",
+    "discovery_search_literature", "discovery_read_abstracts", "discovery_read_full_text",
+    "discovery_get_open_targets_evidence",
     "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
     "discovery_save_hypothesis", "discovery_list_hypotheses", "discovery_get_hypothesis",
     "discovery_run_watchlist", "discovery_list_alerts", "discovery_status",

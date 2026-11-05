@@ -260,6 +260,7 @@ class Opportunity(BaseModel):
     locus: LocusSummary | None = None
     expression: ExpressionSummary | None = None
     genetic_safety: GeneticSafety | None = None
+    text_sentences: list[dict] = Field(default_factory=list)  # Europe PMC text-mining sentences (pmid, section, text, …)
     enriched: bool = False
     warnings: list[str] = Field(default_factory=list)
 
