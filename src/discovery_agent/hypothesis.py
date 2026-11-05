@@ -94,6 +94,14 @@ def build_hypothesis(opp: Opportunity, lang: str = "lt") -> Hypothesis:
         safety.append(tr(lang, "safety.essential"))
     if (t.n_associated_diseases or 0) > 1000:
         safety.append(tr(lang, "safety.pleiotropy", n=t.n_associated_diseases))
+    gs = opp.genetic_safety
+    if gs and gs.liabilities:
+        safety.append(tr(lang, "safety.phewas", items="; ".join(r["disease"] for r in gs.liabilities[:5])))
+    if gs and gs.mouse_lethal and gs.mimics == "LoF":
+        safety.append(tr(lang, "safety.mouse_lethal", items="; ".join(gs.mouse_lethal)))
+    if gs and gs.drug_warnings:
+        safety.append(tr(lang, "safety.drug_warnings", items="; ".join(
+            f"{w['drug']}: {w['type']}" for w in gs.drug_warnings[:3])))
     if not safety:
         safety.append(tr(lang, "safety.none"))
 

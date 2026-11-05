@@ -77,6 +77,14 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
   * Tikrinama, ar taikinys ten išreikštas. Silpna raiška tampa alternatyva „veikia per kitą audinį“.
   * Pateikiami didžiausios raiškos ląstelių tipai: tai kandidatai eksperimentams.
   * Fono užterštumas atmetamas: raiška turi siekti bent 2 % paties geno maksimumo.
+* **Genetinis saugumas (PheWAS)**:
+  * Slopinimas imituoja LoF nešiotojus, aktyvinimas – GoF. Pagal kitų ligų genetiką su anotuota kryptimi
+    nustatoma, kurias ligas tokia moduliacija padidintų (šalutinis poveikis) ar sumažintų (papildomos
+    indikacijos). Pvz., TYK2 slopinimas psoriazei → imunodeficitas 35.
+  * Pridedami pelių knockout letališkumas ir šį taikinį veikiančių vaistų įspėjimai bei reikšmingi FAERS
+    reiškiniai.
+  * Su tiriamąja liga susiję požymiai (pvz., hipocholesterolemija PCSK9 atveju) atmetami: tai tikslinis
+    poveikis.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).

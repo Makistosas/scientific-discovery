@@ -11,9 +11,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from ..models import (AttentionMetrics, DiseaseInfo, DirectionAssessment, Modulation, ScoreBreakdown,
+from ..models import (AttentionMetrics, GeneticSafety, DiseaseInfo, DirectionAssessment, Modulation, ScoreBreakdown,
                       TargetInfo, TractabilityMetrics)
 from ..sources.opentargets import stage_rank
+from .phewas import genetic_safety_risk
 
 # Causal / mechanistic datatypes and how much each counts towards evidence strength.
 # "literature" and "clinical" are excluded: they measure attention, not novelty-compatible causality.
@@ -42,6 +43,7 @@ MODALITY_BUCKETS = {"SM": SM_BUCKETS, "AB": AB_BUCKETS, "PR": PR_BUCKETS, "OC": 
 
 # Target classes where pharmacological activation (agonism/opening/potentiation) is routine.
 ACTIVATABLE_CLASSES = ("receptor", "gpcr", "ion channel", "nuclear receptor", "transporter", "kinase")
+
 
 
 @dataclass
@@ -182,11 +184,16 @@ def combine(evidence: float, attention: float, tractability: float, safety: floa
 
 def score_opportunity(target: TargetInfo, disease: DiseaseInfo, datatype_scores: dict[str, float],
                       attention: AttentionMetrics, tract: TractabilityMetrics, direction: DirectionAssessment,
-                      w: ScoringWeights, *, enriched: bool) -> ScoreBreakdown:
+                      w: ScoringWeights, *, enriched: bool,
+                      genetic_safety: GeneticSafety | None = None) -> ScoreBreakdown:
     e = evidence_strength(datatype_scores, w.causal_weights)
     a = attention_score(attention, w, enriched=enriched)
     t, t_notes = tractability_score(target, tract, direction.modulation)
     s, s_notes = safety_risk(target, direction.modulation)
+    g, g_notes = genetic_safety_risk(genetic_safety)
+    if g:
+        s = round(min(1.0, s + g), 4)
+    s_notes = s_notes + g_notes
     if enriched and attention.trend == "rising":
         s_notes = s_notes + ["attention_rising"]
     return ScoreBreakdown(

@@ -129,6 +129,28 @@ class FakeOpenTargets:
                      "unit": "CPM"}]
         return []
 
+    def target_safety(self, ensembl_id, size=300, max_diseases=40):
+        if ensembl_id != "ENSG00000000004":  # GENED (inhibition): LoF carriers have more infections
+            return {"genetic_diseases": [], "genetic_rows": [], "mouse_lethal": [], "drugs": []}
+        return {
+            "genetic_diseases": [{"id": "EFO_INF", "name": "test infection", "genetic_score": 0.8, "areas": []},
+                                 {"id": "EFO_GOUT", "name": "test gout", "genetic_score": 0.6, "areas": []},
+                                 {"id": "EFO_MISC", "name": "test misc", "genetic_score": 0.5, "areas": []},
+                                 {"id": DISEASE.id, "name": DISEASE.name, "genetic_score": 0.9, "areas": []}],
+            "genetic_rows": [
+                {"disease_id": "EFO_INF", "source": "gene_burden", "score": 0.9, "directionOnTarget": "LoF",
+                 "directionOnTrait": "risk"},
+                {"disease_id": "EFO_GOUT", "source": "gwas_credible_sets", "score": 0.7, "directionOnTarget": "GoF",
+                 "directionOnTrait": "risk"},
+                {"disease_id": "EFO_MISC", "source": "gwas_credible_sets", "score": 0.5, "directionOnTarget": None,
+                 "directionOnTrait": None},
+                {"disease_id": DISEASE.id, "source": "gene_burden", "score": 0.9, "directionOnTarget": "GoF",
+                 "directionOnTrait": "risk"}],
+            "mouse_lethal": ["preweaning lethality, complete penetrance"],
+            "drugs": [{"id": "CHEMBL9", "name": "TESTMAB", "stage": "PHASE_2",
+                       "warnings": [{"type": "Black Box Warning", "class": "hepatotoxicity", "description": ""}],
+                       "adverse_events": [{"name": "liver injury", "llr": 40.0}]}]}
+
     def gwas_loci(self, disease_id, ensembl_id, size=8):
         if ensembl_id != "ENSG00000000004":
             return []

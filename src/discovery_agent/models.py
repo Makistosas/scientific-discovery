@@ -208,6 +208,18 @@ class ScoreBreakdown(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class GeneticSafety(BaseModel):
+    """Phenome-wide consequences of the intended modulation, inferred from human genetics and drug experience."""
+
+    mimics: str | None = None                               # LoF (inhibition) | GoF (activation) | None
+    liabilities: list[dict] = Field(default_factory=list)   # other diseases the modulation would raise
+    benefits: list[dict] = Field(default_factory=list)      # other diseases it would lower
+    other_genetic: list[str] = Field(default_factory=list)  # genetically linked diseases without direction
+    mouse_lethal: list[str] = Field(default_factory=list)   # knockout lethality phenotypes
+    drug_warnings: list[dict] = Field(default_factory=list)  # black-box / withdrawal of drugs on the target
+    adverse_events: list[dict] = Field(default_factory=list)  # significant FAERS events per drug
+
+
 class ExpressionSummary(BaseModel):
     """Baseline expression of the target in disease-relevant tissues (Open Targets: GTEx, Tabula Sapiens, PRIDE)."""
 
@@ -247,6 +259,7 @@ class Opportunity(BaseModel):
     locus_neighbors: list[str] = Field(default_factory=list)  # other GWAS-linked genes within ±500 kb
     locus: LocusSummary | None = None
     expression: ExpressionSummary | None = None
+    genetic_safety: GeneticSafety | None = None
     enriched: bool = False
     warnings: list[str] = Field(default_factory=list)
 

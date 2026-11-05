@@ -222,6 +222,13 @@ class DiscoveryService:
             "expression": ({"status": opp.expression.status, "relevant_tissues": opp.expression.keywords,
                             "relevant": opp.expression.relevant[:3], "top_cells": opp.expression.top_cells,
                             "gtex_breadth": opp.expression.breadth} if opp.expression else None),
+            "genetic_safety": ({"mimics": opp.genetic_safety.mimics,
+                                "liabilities": [r["disease"] for r in opp.genetic_safety.liabilities[:5]],
+                                "other_indications": [r["disease"] for r in opp.genetic_safety.benefits[:5]],
+                                "mouse_lethal": opp.genetic_safety.mouse_lethal,
+                                "drug_warnings": opp.genetic_safety.drug_warnings[:3],
+                                "adverse_events": opp.genetic_safety.adverse_events}
+                               if opp.genetic_safety else None),
             "function": clean_function_text(t.function, 2) if t.function else None,
             "attention": {"publications": opp.attention.publications, "recent": opp.attention.publications_recent,
                           "parent": opp.attention.parent_disease, "parent_publications": opp.attention.parent_publications,

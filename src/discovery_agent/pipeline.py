@@ -25,6 +25,7 @@ from .analysis.direction import infer_direction
 from .analysis.expression import assess_expression
 from .analysis.attention import attention_trend, relative_share
 from .analysis.locus import assess_loci
+from .analysis.phewas import assess_genetic_safety
 from .analysis.scoring import ScoringWeights, clinical_stage_for_disease, score_opportunity
 from .config import Settings
 from .i18n import normalize_lang
@@ -164,7 +165,8 @@ class DiscoveryPipeline:
 
     def _rescore(self, opp: Opportunity, *, enriched: bool) -> None:
         opp.scores = score_opportunity(opp.target, opp.disease, opp.association.datatype_scores, opp.attention,
-                                       opp.tractability, opp.direction, self.weights, enriched=enriched)
+                                       opp.tractability, opp.direction, self.weights, enriched=enriched,
+                                       genetic_safety=opp.genetic_safety)
 
     # ------------------------------------------------------------------
     # Stage 2
@@ -315,6 +317,11 @@ class DiscoveryPipeline:
             opp.warnings.append("No UniProt accession: ChEMBL/PDB/UniProt enrichment skipped.")
 
         items += ev.safety_evidence(t, lang)
+        if hasattr(s.opentargets, "target_safety"):
+            data = self._safe(lambda: s.opentargets.target_safety(t.ensembl_id), opp, "Open Targets genetic safety")
+            if data:
+                opp.genetic_safety = assess_genetic_safety(data, d, opp.direction.modulation)
+                items += ev.genetic_safety_evidence(opp.genetic_safety, t, lang)
         opp.evidence = ev.assign_ids(items)
         opp.enriched = True
         self._rescore(opp, enriched=True)
