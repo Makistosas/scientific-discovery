@@ -331,6 +331,17 @@ class OpenTargetsClient:
                                              for x in ae.get("rows") or [] if (x.get("logLR") or 0) > crit]})
         return {"genetic_diseases": genetic, "genetic_rows": rows, "mouse_lethal": lethal, "drugs": drugs}
 
+    def literature_sentences(self, disease_id: str, ensembl_id: str, size: int = 40) -> list[dict]:
+        """Europe PMC text-mining sentences that co-mention the target and the disease (via Open Targets)."""
+        d = self.query(_SENTENCES_QUERY, {"d": disease_id, "t": [ensembl_id], "n": size}).get("disease") or {}
+        out = []
+        for r in (d.get("evidences") or {}).get("rows") or []:
+            pmid = next(iter(r.get("literature") or []), None)
+            for s in r.get("textMiningSentences") or []:
+                out.append({"pmid": pmid, "year": r.get("publicationYear"), "section": s.get("section"),
+                            "text": s.get("text") or "", "score": r.get("resourceScore")})
+        return out
+
     def pair_evidence(self, disease_id: str, ensembl_id: str,
                       groups: dict[str, tuple[list[str], int]] | None = None) -> dict[str, list[dict]]:
         """Evidence rows for one target–disease pair, grouped (one aliased GraphQL call)."""
@@ -352,6 +363,10 @@ _EXPRESSION_QUERY = """query($t: String!, $n: Int!) { target(ensemblId: $t) {
     datasourceId unit median specificity_score
     tissueBiosample { biosampleName } celltypeBiosample { biosampleName } } } } }"""
 
+
+_SENTENCES_QUERY = """query($d: String!, $t: [String!]!, $n: Int!) { disease(efoId: $d) {
+  evidences(ensemblIds: $t, enableIndirect: true, datasourceIds: ["europepmc"], size: $n) {
+    rows { literature publicationYear resourceScore textMiningSentences { text section } } } } }"""
 
 _GENETIC_SOURCES = ("gwas_credible_sets", "gene_burden", "eva", "genomics_england", "gene2phenotype", "orphanet",
                     "uniprot_variants", "clingen")

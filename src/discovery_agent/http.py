@@ -124,6 +124,13 @@ class HttpClient:
                  headers: dict | None = None) -> Any:
         return self._request("GET", url, params=params, payload=None, ttl_hours=ttl_hours, headers=headers)
 
+    def get_text(self, url: str, params: dict | None = None, *, ttl_hours: float | None = None,
+                 headers: dict | None = None) -> str:
+        """GET a non-JSON body (e.g. full-text XML); cached like JSON responses."""
+        headers = {"Accept": "application/xml, text/plain, */*", **(headers or {})}
+        return self._request("GET", url, params=params, payload=None, ttl_hours=ttl_hours, headers=headers,
+                             as_text=True)
+
     def post_json(self, url: str, payload: Any, *, ttl_hours: float | None = None,
                   headers: dict | None = None) -> Any:
         return self._request("POST", url, params=None, payload=payload, ttl_hours=ttl_hours, headers=headers)
@@ -143,9 +150,9 @@ class HttpClient:
         return hashlib.sha256(blob.encode()).hexdigest()
 
     def _request(self, method: str, url: str, *, params: dict | None, payload: Any,
-                 ttl_hours: float | None, headers: dict | None) -> Any:
+                 ttl_hours: float | None, headers: dict | None, as_text: bool = False) -> Any:
         ttl = self.settings.cache_ttl_hours if ttl_hours is None else ttl_hours
-        key = self.cache_key(method, url, params, payload)
+        key = self.cache_key(method + (":text" if as_text else ""), url, params, payload)
         if self.cache is not None and ttl > 0:
             cached = self.cache.get(key, ttl * 3600)
             if cached is not None:
@@ -178,10 +185,13 @@ class HttpClient:
             if response.status_code >= 400:
                 snippet = (response.text or "")[:300]
                 raise HttpError(f"HTTP {response.status_code} for {url}: {snippet}", response.status_code, url)
-            try:
-                data = response.json()
-            except ValueError as exc:
-                raise HttpError(f"Invalid JSON from {url}", response.status_code, url) from exc
+            if as_text:
+                data = response.text
+            else:
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise HttpError(f"Invalid JSON from {url}", response.status_code, url) from exc
             if self.cache is not None and ttl > 0:
                 self.cache.set(key, data)
             return data

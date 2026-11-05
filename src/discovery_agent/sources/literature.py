@@ -129,6 +129,19 @@ class EuropePMCClient:
         data = self.http.get_json(EUROPEPMC_SEARCH, params, ttl_hours=ttl_hours)
         return int(data.get("hitCount") or 0)
 
+    def full_text_xml(self, pmcid: str) -> str:
+        """JATS XML of an open-access article in Europe PMC (raises HttpError 404 when not available)."""
+        return self.http.get_text(f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML")
+
+    def pmcid_for(self, pmid: str) -> tuple[str | None, bool]:
+        """(PMCID, is open access) for a PMID."""
+        data = self.http.get_json(EUROPEPMC_SEARCH, {"query": f"EXT_ID:{pmid} AND SRC:MED", "format": "json",
+                                                     "resultType": "lite", "pageSize": 1})
+        rows = (data.get("resultList") or {}).get("result") or []
+        if not rows:
+            return None, False
+        return rows[0].get("pmcid"), rows[0].get("isOpenAccess") == "Y"
+
     # Convenience wrappers ---------------------------------------------------
     def topic_count(self, terms: list[str], *, since: date | str | None = None,
                     until: date | str | None = None) -> int:

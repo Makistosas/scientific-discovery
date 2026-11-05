@@ -142,7 +142,7 @@ def alternative_explanations(opp: Opportunity, lang: str) -> list[AlternativeExp
             plausibility="moderate" if n_dis > 1000 else "low", how_to_test=tr(lang, "alt.pleiotropy.test")))
 
     stopped = [e for e in opp.evidence if e.stance is Stance.CONTRADICTS]
-    if opp.scores.gap > 0.5 or stopped:
+    if opp.scores.gap > 0.5 or stopped or any(x.get("negative") for x in opp.text_sentences):
         text = tr(lang, "alt.negative.text") + (" " + tr(lang, "alt.negative.text_stopped") if stopped else "")
         att = opp.attention
         if att.gene_publications is not None and att.gene_publications < 300:
@@ -151,9 +151,14 @@ def alternative_explanations(opp: Opportunity, lang: str) -> list[AlternativeExp
             text += " " + tr(lang, "alt.negative.known_gene", symbol=opp.target.symbol, n=att.gene_publications)
         if att.trend == "declining":
             text += " " + tr(lang, "alt.negative.declining")
+        neg_sent = [x for x in opp.text_sentences if x.get("negative")]
+        if neg_sent:
+            text += " " + tr(lang, "alt.negative.sentences", items="; ".join(
+                f"PMID {x['pmid']}: “{x['text'][:160]}”" for x in neg_sent[:2]))
         out.append(AlternativeExplanation(
             title=tr(lang, "alt.negative.title"), explanation=text,
-            plausibility="high" if stopped else "moderate", how_to_test=tr(lang, "alt.negative.test"),
+            plausibility="high" if stopped or len({x["pmid"] for x in neg_sent}) >= 2 else "moderate",
+            how_to_test=tr(lang, "alt.negative.test"),
             evidence_ids=[e.id for e in stopped]))
 
     if dt.get("literature", 0.0) > 0 and causal_non_expr < 0.15:

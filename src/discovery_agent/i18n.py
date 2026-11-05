@@ -141,6 +141,19 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ev.lit": {"lt": "Europe PMC: {n} publikacijos(-ų) mini {symbol} ir ligą pavadinime/santraukoje ({recent} per pastaruosius 3 m.); PubMed [tiab]: {pubmed}.",
                "en": "Europe PMC: {n} publications mention {symbol} and the disease in title/abstract ({recent} in the last 3 years); PubMed [tiab]: {pubmed}."},
     "ev.lit.parent": {"lt": " Su tėvine liga „{parent}“: {n}.", "en": " With the parent disease “{parent}”: {n}."},
+    "ev.sent": {"lt": "Sakiniai, kuriuose kartu minimi {symbol} ir liga (Europe PMC teksto analizė): {n}, iš jų neigiamų rezultatų: {neg}.",
+                "en": "Sentences co-mentioning {symbol} and the disease (Europe PMC text mining): {n}, of which negative results: {neg}."},
+    "ev.sent.negative": {"lt": "neigiamas rezultatas", "en": "negative result"},
+    "ev.sent.cue.inhibition_benefit": {"lt": "užuomina: slopinimas naudingas", "en": "hint: inhibition helps"},
+    "ev.sent.cue.inhibition_harm": {"lt": "užuomina: slopinimas kenkia", "en": "hint: inhibition harms"},
+    "ev.sent.cue.activation_benefit": {"lt": "užuomina: aktyvinimas naudingas", "en": "hint: activation helps"},
+    "ev.sent.cue.activation_harm": {"lt": "užuomina: aktyvinimas kenkia", "en": "hint: activation harms"},
+    "rel.sentences": {
+        "lt": "Automatiškai atrinkti sakiniai; kryptis ir neigiamumas nustatyti pagal raktinius žodžius – būtina perskaityti šaltinį.",
+        "en": "Automatically selected sentences; negativity and direction hints come from keyword rules – read the source."},
+    "alt.negative.sentences": {
+        "lt": "Literatūroje rasta neigiamų rezultatų sakinių: {items}.",
+        "en": "Negative-result sentences found in the literature: {items}."},
     "ev.phewas.risk": {
         "lt": "Genetika rodo galimą šalutinį poveikį: {mod} imituoja {mimics} nešiotojus, o jiems padidėja kitų ligų rizika: {items}.",
         "en": "Genetics flags possible on-target liabilities: {mod} mimics {mimics} carriers, who have higher risk of: {items}."},

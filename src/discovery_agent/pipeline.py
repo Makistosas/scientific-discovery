@@ -26,6 +26,7 @@ from .analysis.expression import assess_expression
 from .analysis.attention import attention_trend, relative_share
 from .analysis.locus import assess_loci
 from .analysis.phewas import assess_genetic_safety
+from .analysis.sentences import select_sentences
 from .analysis.scoring import ScoringWeights, clinical_stage_for_disease, score_opportunity
 from .config import Settings
 from .i18n import normalize_lang
@@ -233,6 +234,13 @@ class DiscoveryPipeline:
                 opp.expression = assess_expression(rows, d, opp.locus)
                 if opp.expression.status:
                     items.append(ev.expression_evidence(opp.expression, t, lang))
+
+        if hasattr(s.opentargets, "literature_sentences"):
+            rows = self._safe(lambda: s.opentargets.literature_sentences(d.id, t.ensembl_id), opp,
+                              "Open Targets text mining")
+            if rows:
+                opp.text_sentences = select_sentences(rows)
+                items.append(ev.sentence_evidence(opp.text_sentences, t, lang))
 
         genes = gene_terms(t.symbol, t.name)
         diseases = disease_terms(d.name, d.synonyms)

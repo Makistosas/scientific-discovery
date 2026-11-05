@@ -92,7 +92,7 @@ BIN/discovery-agent mcp --self-test --online
 **Expected:** `9/9 checks passed`:
 
 * the server starts over stdio;
-* 16 tools and 3 prompts are present;
+* 17 tools and 3 prompts are present;
 * the local database works;
 * Open Targets, Europe PMC, ClinicalTrials.gov and ChEMBL are reachable through the server.
 

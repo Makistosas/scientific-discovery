@@ -85,6 +85,13 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
     reiškiniai.
   * Su tiriamąja liga susiję požymiai (pvz., hipocholesterolemija PCSK9 atveju) atmetami: tai tikslinis
     poveikis.
+* **Sakiniai iš literatūros**:
+  * Europe PMC teksto analizės sakiniai (per Open Targets), kuriuose kartu minimi taikinys ir liga.
+  * Pirmiausia imami rezultatų skyriai, iš kiekvieno straipsnio po vieną sakinį, pasikartojimai pašalinami.
+  * Neigiami rezultatai pažymimi. Jie sustiprina alternatyvą „nepaskelbti ar neigiami rezultatai“.
+  * Užuominos „slopinimas naudingas / kenkia“ nustatomos pagal raktinius žodžius. Jos nėra kryptis, o tik
+    nuoroda, ką perskaityti.
+  * Įrankis `read_full_text` perskaito atviros prieigos straipsnio pilną tekstą.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
@@ -274,6 +281,7 @@ Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Cl
 | `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, įvertinti įrodymai, sustabdyti tyrimai, saugumas, vaistai, alternatyvos, svarbiausi santraukų sakiniai su neigiamų rezultatų žymomis (~1,8 tūkst. žetonų) |
 | `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
 | `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
+| `discovery_read_full_text` | Atviros prieigos straipsnio pilnas tekstas: sakiniai apie taikinį pagal skyrius, su neigiamų rezultatų žymomis |
 | `discovery_get_open_targets_evidence`, `discovery_get_target_profile`, `discovery_get_chembl_profile`, `discovery_search_clinical_trials` | Įrodymai, taikinių profiliai, junginiai, klinikiniai tyrimai |
 | `discovery_search_entities` | Ligų, genų ir vaistų ID paieška |
 | `discovery_save_hypothesis` | Įrašo hipotezę į DB ir `.md` failą. Patikrina, ar cituojami įrodymų ID yra rinkinyje, o PMID, DOI ir NCT ID – ar tikrai egzistuoja |

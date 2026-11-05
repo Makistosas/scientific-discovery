@@ -115,7 +115,7 @@ def test_mcp_tools_prompts_and_errors_in_memory(service):
     async def scenario():
         async with Client(server) as c:
             tools = {t.name: t for t in (await c.list_tools()).tools}
-            assert len(tools) == 16 and all(n.startswith("discovery_") for n in tools)
+            assert len(tools) == 17 and all(n.startswith("discovery_") for n in tools)
             assert "ctx" not in tools["discovery_find_opportunities"].input_schema["properties"]
             assert tools["discovery_list_hypotheses"].annotations.read_only_hint is True
             r = await c.call_tool("discovery_find_opportunities", {"disease": "test fibrosis", "top_k": 3,

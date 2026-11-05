@@ -476,6 +476,25 @@ def genetic_safety_evidence(gs: GeneticSafety, target: TargetInfo, lang: str) ->
     return items
 
 
+def sentence_evidence(sentences: list[dict], target: TargetInfo, lang: str) -> Evidence:
+    """Key text-mining sentences co-mentioning the target and the disease, negative findings flagged."""
+    negatives = [s for s in sentences if s["negative"]]
+    lines = []
+    for s in sentences[:4]:
+        tag = " [" + tr(lang, "ev.sent.negative") + "]" if s["negative"] else ""
+        if s.get("cue"):
+            tag += " [" + tr(lang, "ev.sent.cue." + s["cue"]) + "]"
+        lines.append(f"“{s['text']}” (PMID {s['pmid']}, {s['section']}){tag}")
+    summary = tr(lang, "ev.sent", symbol=target.symbol, n=len(sentences), neg=len(negatives)) + " " + " ".join(lines)
+    pmids = list(dict.fromkeys(s["pmid"] for s in sentences if s.get("pmid")))[:5]
+    return Evidence(
+        source="Europe PMC text mining (via Open Targets)", type=EvidenceType.LITERATURE, aspect=Aspect.MECHANISM,
+        summary=summary, stance=Stance.NEUTRAL, reliability=Reliability.D,
+        reliability_rationale=tr(lang, "rel.sentences"),
+        references=[Reference(label=f"PMID {p}", url=f"https://pubmed.ncbi.nlm.nih.gov/{p}/") for p in pmids],
+    )
+
+
 def assign_ids(items: list[Evidence]) -> list[Evidence]:
     order = {Aspect.CAUSALITY: 0, Aspect.DIRECTION: 1, Aspect.MECHANISM: 2, Aspect.TRACTABILITY: 3,
              Aspect.SAFETY: 4, Aspect.ATTENTION: 5}

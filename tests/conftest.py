@@ -129,6 +129,19 @@ class FakeOpenTargets:
                      "unit": "CPM"}]
         return []
 
+    def literature_sentences(self, disease_id, ensembl_id, size=40):
+        if ensembl_id != "ENSG00000000001":
+            return []
+        return [
+            {"pmid": "44444444", "year": 2024, "section": "abstract", "score": 5,
+             "text": "GENEA expression is increased in test fibrosis lungs."},
+            {"pmid": "44444444", "year": 2024, "section": "results", "score": 5,
+             "text": "Knockdown of GENEA attenuated fibrosis in the test fibrosis model."},
+            {"pmid": "44444445", "year": 2022, "section": "results", "score": 3,
+             "text": "GENEA variants were not associated with test fibrosis in the replication cohort."},
+            {"pmid": "44444445", "year": 2022, "section": "results", "score": 3,
+             "text": "GENEA variants were not associated with test fibrosis in the replication cohort."}]
+
     def target_safety(self, ensembl_id, size=300, max_diseases=40):
         if ensembl_id != "ENSG00000000004":  # GENED (inhibition): LoF carriers have more infections
             return {"genetic_diseases": [], "genetic_rows": [], "mouse_lethal": [], "drugs": []}
@@ -214,6 +227,17 @@ class FakeEuropePMC:
         if sym != "?":  # a gene alone
             return GENE_COUNTS.get(sym, 5000)
         return 1500 if since else 5000  # the disease field: flat over time
+
+    def pmcid_for(self, pmid):
+        return ("PMC1000001", True) if pmid == "44444444" else (None, False)
+
+    def full_text_xml(self, pmcid):
+        return ("<article><front><article-meta><title-group><article-title>GENEA in fibrosis</article-title>"
+                "</title-group></article-meta></front><body>"
+                "<sec><title>Introduction</title><p>Fibrosis is common. GENEA is a kinase.</p></sec>"
+                "<sec><title>Results</title><p>Loss of GENEA reduced collagen deposition in test fibrosis mice. "
+                "GENEA levels did not differ between groups at baseline. Other genes were unchanged.</p></sec>"
+                "</body></article>")
 
     def count(self, query, *, ttl_hours=None):
         self.queries.append(query)
