@@ -63,9 +63,16 @@ def sources_data_versions(sources) -> dict:
 
 
 _LABELS = {"open_targets": "Open Targets", "chembl": "ChEMBL", "uniprot": "UniProt",
-           "clinicaltrials_gov": "ClinicalTrials.gov", "literature": "Literature", "tool": "Tool",
-           "queried": "Queried", "cache_ttl_hours": "HTTP cache TTL (h)"}
+           "clinicaltrials_gov": "ClinicalTrials.gov"}
 
 
-def versions_markdown(versions: dict) -> str:
-    return "\n".join(f"- {_LABELS.get(k, k)}: {v}" for k, v in versions.items())
+def versions_markdown(versions: dict, lang: str = "en") -> str:
+    from ..i18n import tr
+
+    out = []
+    for k, v in versions.items():
+        label = _LABELS.get(k) or tr(lang, f"ver.{k}")
+        if k == "literature":
+            v = tr(lang, "ver.literature_value")
+        out.append(f"- {label}: {v}")
+    return "\n".join(out)

@@ -36,14 +36,21 @@ python3 -m venv .venv
 ## Layout
 
 * `src/discovery_agent/sources/` – API clients (Open Targets GraphQL, Europe PMC, PubMed, bioRxiv, ChEMBL, UniProt,
-  PDB, ClinicalTrials.gov).
-* `src/discovery_agent/analysis/` – evidence grading (A–D), direction of modulation, scoring, critique.
+  PDB, ClinicalTrials.gov) and `versions.py` (data releases shown in every report).
+* `src/discovery_agent/analysis/` – evidence grading (A–D), direction of modulation, GWAS locus / QTL
+  colocalisation (`locus.py`), expression, genetic safety (`phewas.py`), relative attention, literature
+  sentences, scoring, critique, and the deterministic hypothesis quality check (`quality.py`).
 * `src/discovery_agent/pipeline.py` – candidate generation → enrichment → ranking.
+* `src/discovery_agent/scan.py` – whole-platform scan of Open Targets Parquet files (`pip install -e ".[scan]"`).
+* `src/discovery_agent/benchmark.py` – does the score rank clinical-stage targets higher? Run it before and after
+  scoring changes; `docs/BENCHMARK.md` records results.
 * `src/discovery_agent/hypothesis.py` – rule-based hypotheses.
 * `src/discovery_agent/llm/` – Claude synthesizer and tool-using investigator (`ToolSession` holds the vetted
   tools).
-* `src/discovery_agent/mcp_server.py` – local MCP server, `--install claude-desktop`, `--self-test`.
-* `src/discovery_agent/monitor/` – watchlist runs, SQLite/JSON state, alerts.
+* `src/discovery_agent/mcp_server.py` – local MCP server (21 tools, 3 prompts), `--install claude-desktop`,
+  `--self-test`.
+* `src/discovery_agent/monitor/` – watchlist runs, SQLite/JSON state, alerts, feedback and staleness review
+  (`review.py`).
 * `src/discovery_agent/managed.py` and `managed_agents/` – Claude Managed Agents deployment.
 * `tests/conftest.py` – offline fakes for every source. Extend them instead of calling real APIs in unit tests.
 

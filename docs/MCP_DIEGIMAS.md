@@ -70,7 +70,7 @@ Toliau komandos parašytos macOS/Linux forma. Windows vietoje `.venv/bin/discove
 Komanda paleidžia serverį taip pat, kaip jį paleis Claude, ir patikrina:
 
 * ar serveris startuoja;
-* ar yra visi 21 įrankių ir 3 šablonai;
+* ar yra visi 21 įrankis ir 3 šablonai;
 * ar veikia vietinė duomenų bazė;
 * ar pasiekiami Open Targets, Europe PMC, ClinicalTrials.gov ir ChEMBL.
 
@@ -144,10 +144,20 @@ Atspausdintą bloką pridėkite į `~/.codex/config.toml` ir perkraukite Codex.
 
 * Paprastas prašymas: *„Rask mažai ištirtas terapines galimybes idiopatinei plaučių fibrozei ir parašyk 3
   hipotezes lietuviškai.“* Modelis pats:
-  * suranda galimybes ir išanalizuoja geriausias;
-  * patikrina literatūrą ir klinikinius tyrimus;
+  * suranda galimybes (`discovery_find_opportunities`) ir kiekvieną geriausią išanalizuoja vienu kvietimu
+    (`discovery_investigate_pair`). Gaunama kryptis, GWAS lokusas, raiška audiniuose, genetinis saugumas ir
+    sakiniai iš literatūros;
+  * prireikus patikrina literatūrą, pilnus tekstus ir klinikinius tyrimus;
+  * patikrina juodraščio kokybę (`discovery_check_hypothesis`) ir pataiso trūkumus;
   * įrašo hipotezes į duomenų bazę. Įrašant patikrinama, ar cituojami įrodymų ID yra rinkinyje ir ar PMID,
-    DOI ir NCT ID tikrai egzistuoja.
+    DOI ir NCT ID tikrai egzistuoja. Įrašomas ir kokybės balas.
+* Hipotezių priežiūra:
+  * *„Peržiūrėk mano hipotezes – ar kurios pasenusios?“* – `discovery_review_hypotheses` iš naujo
+    išanalizuoja poras ir parodo, kas pasikeitė;
+  * *„Pažymėk HM-… kaip atmestą: siRNR neturėjo poveikio“* – `discovery_record_feedback`. Atmestos ir
+    atidėtos hipotezės nebeperžiūrimos, o verdiktas rodomas, kai pora vėl pasirodo paieškoje.
+* Visa platforma iš karto: atlikite skenavimą (žr. žemiau) ir paprašykite *„Parodyk geriausias kvėpavimo takų
+  ligų poras iš skenavimo ir ištirk 3 pirmas“* – `discovery_scan_results`.
 * Paruošti šablonai:
   * `investigate_disease` – visas ciklas ligai;
   * `write_hypothesis` – viena taikinio–ligos pora;
@@ -159,6 +169,28 @@ Atspausdintą bloką pridėkite į `~/.codex/config.toml` ir perkraukite Codex.
 * Kiekvienas įrankio kvietimas naudoja jūsų prenumeratos limitą. Ilgas tyrimas su daug kandidatų jį sunaudoja
   greičiau.
 
+## Nebūtina: viso Open Targets skenavimas
+
+Skenavimas įvertina visas Open Targets taikinio–ligos poras iš masinių duomenų failų. Jį paleiskite terminale.
+Duomenys atsisiunčiami vieną kartą, ≈ 0,9 GB 26.09 leidimui. Skenavimas trunka apie 20 s ir užima apie 3 GB
+RAM.
+
+```bash
+.venv/bin/pip install -e ".[mcp,scan]"
+```
+
+```bash
+.venv/bin/discovery-agent scan download --release 26.09
+```
+
+```bash
+.venv/bin/discovery-agent scan run --min-lines 2 --no-monogenic
+```
+
+Rezultatai įrašomi į `scan/` duomenų kataloge, o MCP įrankis `discovery_scan_results` juos pateikia Claude.
+Vienai terapinei sričiai naudokite `--area respiratory`. `--enrich 10` 10 geriausių porų įvertina visu
+pipeline.
+
 ## Kur saugomi duomenys
 
 Numatytasis katalogas – `~/.local/share/discovery-agent/` (Windows:
@@ -168,9 +200,11 @@ Numatytasis katalogas – `~/.local/share/discovery-agent/` (Windows:
 |---|---|
 | `discovery.sqlite` | duomenų bazė: įrodymų rinkiniai, hipotezės, stebėsena, perspėjimai |
 | `hypotheses/*.md` | išsaugotos hipotezės |
-| `reports/` | galimybių ataskaitos ir porų analizės |
+| `reports/` | galimybių ataskaitos ir porų analizės (su duomenų versijomis) |
 | `watchlist.yaml` | stebimos ligos ar taikiniai (redaguokite laisvai) |
 | `watch/` | stebėsenos ataskaitos ir santraukos |
+| `opentargets/<leidimas>/` | atsisiųsti Open Targets Parquet failai (tik skenavimui) |
+| `scan/` | skenavimo rezultatai (`scan.md`, `scan.csv`, `scan.json`) |
 
 API atsakymų kešas laikomas `~/.cache/discovery-agent/`.
 
@@ -184,11 +218,13 @@ git pull
 .venv/bin/pip install -e ".[mcp]"
 ```
 
+(Jei naudojate skenavimą: `".[mcp,scan]"`.)
+
 ```bash
 .venv/bin/discovery-agent mcp --self-test
 ```
 
-Tada perkraukite Claude Desktop arba Claude Code.
+Tada perkraukite Claude Desktop arba Claude Code. Atnaujinus įrankių sąrašas pasikeičia tik po perkrovimo.
 
 ## Reguliarus paleidimas be API
 
@@ -211,4 +247,7 @@ Tada perkraukite Claude Desktop arba Claude Code.
 | `--install` sako „not valid JSON“ | Konfigūracijos faile yra klaida. Ištaisykite ją arba perkelkite failą (komanda tokio failo neliečia) |
 | Pirmas tyrimas nutrūksta dėl laiko | Pakartokite (antrą kartą duomenys jau keše) arba prašykite mažiau kandidatų. Claude Code: `MCP_TOOL_TIMEOUT` (ms) |
 | `online:` patikrinimai nepraeina | Tinklas ar įmonės užkarda blokuoja viešų duomenų bazių adresus |
+| `The scan needs PyArrow` | `.venv/bin/pip install -e ".[mcp,scan]"` |
+| `scan download` lėtas ar nutrūksta | Paleiskite iš naujo: atsisiųsti failai praleidžiami. Jei HTTPS į `ftp.ebi.ac.uk` blokuojamas, komanda pati bando HTTP |
+| `discovery_scan_results`: „No scan yet“ | Pirmiausia terminale paleiskite `scan download` ir `scan run` |
 | Interaktyvus patikrinimas | `npx @modelcontextprotocol/inspector .venv/bin/python -m discovery_agent mcp` (reikia Node.js) |
