@@ -408,6 +408,72 @@ def benchmark(ctx, diseases, size, out, as_json):
     click.echo(text)
 
 
+@main.group()
+def scan() -> None:
+    """Whole-platform scan of Open Targets bulk data (download once, then rank every target–disease pair)."""
+
+
+def _scan_root(ctx, data_dir: Path | None) -> Path:
+    return Path(data_dir).expanduser() if data_dir else ctx.obj["settings"].data_dir / "opentargets"
+
+
+@scan.command("download")
+@click.option("--release", default="26.09", show_default=True, help="Open Targets release, e.g. 26.09.")
+@click.option("--dir", "data_dir", type=click.Path(path_type=Path), default=None,
+              help="Where to keep the Parquet files (default <data dir>/opentargets).")
+@click.pass_context
+def scan_download(ctx, release, data_dir):
+    """Download the four datasets the scan needs (≈ 0.9 GB for 26.09; resumable)."""
+    from .scan import download
+
+    root = download(release, _scan_root(ctx, data_dir), progress=_progress)
+    click.echo(f"Downloaded to {root}")
+
+
+@scan.command("run")
+@click.option("--release", default="26.09", show_default=True)
+@click.option("--dir", "data_dir", type=click.Path(path_type=Path), default=None)
+@click.option("--top", type=int, default=200, show_default=True, help="Pairs to keep.")
+@click.option("--min-evidence", type=float, default=0.4, show_default=True)
+@click.option("--max-attention", type=float, default=0.5, show_default=True)
+@click.option("--area", default=None, help="Keep one therapeutic area (substring, e.g. 'respiratory').")
+@click.option("--enrich", type=int, default=0, show_default=True,
+              help="Re-score the top N pairs with the full pipeline (papers, trials, direction, safety …).")
+@click.option("--out", type=click.Path(path_type=Path), default=None, help="Output directory.")
+@click.pass_context
+def scan_run(ctx, release, data_dir, top, min_evidence, max_attention, area, enrich, out):
+    """Rank every direct target–disease pair by causal evidence × (1 − attention proxy)."""
+    from .scan import run_scan, write_results
+
+    settings = ctx.obj["settings"]
+    root = _scan_root(ctx, data_dir) / release
+    if not (root / "association_by_datatype_direct").exists():
+        raise click.UsageError(f"No data in {root}. Run: discovery-agent scan download --release {release}")
+    rows = run_scan(root, min_evidence=min_evidence, top=top * 5 if area else top, max_attention=max_attention,
+                    progress=_progress)
+    if area:
+        rows = [r for r in rows if any(area.lower() in a.lower() for a in r.therapeutic_areas)][:top]
+    out = out or settings.data_dir / "scan" / f"{release}_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    paths = write_results(rows, out, release)
+    click.echo(f"{len(rows)} pairs → {paths['md']}")
+    if enrich:
+        agent = DiscoveryAgent(settings, progress=_progress)
+        opps = []
+        for r in rows[:enrich]:
+            try:
+                opps.append(agent.pipeline.analyze_pair(r.target_id, r.disease_id).opportunities[0])
+            except Exception as exc:  # one failing pair must not stop the rest
+                click.echo(f"  {r.symbol} – {r.disease}: {exc}", err=True)
+        opps.sort(key=lambda o: -o.scores.opportunity)
+        from .pipeline import DiscoveryResult
+
+        run = agent._finish(DiscoveryResult(query=f"scan {release}", mode="pair", opportunities=opps,
+                                            candidates_considered=len(rows), params={"language": agent.lang}),
+                            f"Open Targets {release} scan: top {len(opps)} enriched")
+        written = agent.write_outputs(run, out / "enriched")
+        click.echo(f"Enriched report → {written['report']}")
+
+
 def _service(ctx, data_dir: Path | None):
     from .mcp_server import DiscoveryService
 

@@ -490,6 +490,23 @@ class DiscoveryService:
              "report_path": str(s.report_path) if s.report_path else None,
              "digest_path": str(s.digest_path) if s.digest_path else None} for s in summaries]}
 
+    def scan_results(self, *, area: str | None = None, target: str | None = None, limit: int = 30) -> dict:
+        """Latest whole-platform scan written by `discovery-agent scan run`."""
+        files = sorted((self.data_dir / "scan").glob("*/scan.json"), key=lambda p: p.stat().st_mtime)
+        if not files:
+            raise ServiceError("No scan yet. In a terminal run `discovery-agent scan download` (≈ 0.9 GB, once) and "
+                               "`discovery-agent scan run`, then call this tool again.")
+        data = json.loads(files[-1].read_text(encoding="utf-8"))
+        rows = data["rows"]
+        if area:
+            rows = [r for r in rows if any(area.lower() in a.lower() for a in r["therapeutic_areas"])]
+        if target:
+            rows = [r for r in rows if r["symbol"].upper() == target.upper() or r["target_id"] == target]
+        keep = ("symbol", "target_id", "disease", "disease_id", "score", "evidence", "attention", "max_stage",
+                "therapeutic_areas", "datatypes")
+        return {"release": data["release"], "generated": data["generated"], "path": str(files[-1]),
+                "matching": len(rows), "rows": [{k: r[k] for k in keep} for r in rows[:limit]]}
+
     def alerts(self, watch: str | None = None, limit: int = 30) -> list[dict]:
         return [{"created_at": r["created_at"], "watch": r["watch"], "kind": r["kind"], "message": r["message"]}
                 for r in self.store.recent_alerts(watch, limit)]
@@ -850,6 +867,20 @@ def build_server(service: DiscoveryService | None = None):
         return _dump(await blocking(ctx, lambda p: svc().review_hypotheses(
             hypothesis_id=hypothesis_id, limit=limit, language=language, progress=p)))
 
+    @server.tool(name="discovery_scan_results", annotations=ToolAnnotations(
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+        structured_output=False)
+    def scan_results(
+        area: Annotated[str | None, Field(description="Therapeutic area substring, e.g. 'respiratory'")] = None,
+        target: Annotated[str | None, Field(description="Only this gene symbol or Ensembl id")] = None,
+        limit: Annotated[int, Field(ge=1, le=200)] = 30,
+    ) -> str:
+        """Read the latest whole-platform Open Targets scan (every direct target–disease pair ranked by causal
+        evidence × (1 − attention proxy), from bulk Parquet data). Use it to pick candidates across all
+        diseases, then discovery_investigate_pair on the most interesting ones. The scan itself runs in a
+        terminal: `discovery-agent scan download` then `discovery-agent scan run`."""
+        return _dump(call(lambda: svc().scan_results(area=area, target=target, limit=limit)))
+
     @server.tool(name="discovery_run_watchlist", annotations=writes, structured_output=False)
     async def run_watchlist(
         ctx: Context,
@@ -950,7 +981,7 @@ TOOL_NAMES = (
     "discovery_get_open_targets_evidence",
     "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
     "discovery_check_hypothesis", "discovery_save_hypothesis", "discovery_list_hypotheses",
-    "discovery_record_feedback", "discovery_review_hypotheses", "discovery_get_hypothesis",
+    "discovery_record_feedback", "discovery_review_hypotheses", "discovery_scan_results", "discovery_get_hypothesis",
     "discovery_run_watchlist", "discovery_list_alerts", "discovery_status",
 )
 PROMPT_NAMES = ("investigate_disease", "write_hypothesis", "weekly_review")

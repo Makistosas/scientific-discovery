@@ -115,6 +115,14 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
   duomenimis remtasi – Open Targets leidimą (pvz., 26.09), ChEMBL ir UniProt leidimus, ClinicalTrials.gov
   duomenų datą, užklausos laiką ir HTTP kešo trukmę. Kai išeina naujas Open Targets leidimas, išsaugotos
   hipotezės peržiūroje pažymimos kaip pasenusios.
+* **Viso Open Targets skenavimas** (masiniai Parquet duomenys, `pip install -e ".[scan]"`):
+  * `discovery-agent scan download --release 26.09` vieną kartą atsisiunčia ≈ 0,9 GB.
+  * `discovery-agent scan run` įvertina **visas** tiesiogines taikinio ir ligos poras. Balas: priežastiniai
+    įrodymai × (1 − dėmesio įvertis). Dėmesio įvertį sudaro OT literatūros balas ir aukščiausia klinikinė
+    stadija ligai ar jos potipiams.
+  * Paliekami tik baltymus koduojantys taikiniai ir konkrečios ligos.
+  * `--area respiratory` palieka vieną terapinę sritį, `--enrich 20` geriausias poras įvertina visu pipeline.
+  * MCP įrankis `discovery_scan_results` rezultatus pateikia Claude.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
@@ -304,6 +312,7 @@ Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Cl
 | `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, įvertinti įrodymai, sustabdyti tyrimai, saugumas, vaistai, alternatyvos, svarbiausi santraukų sakiniai su neigiamų rezultatų žymomis (~1,8 tūkst. žetonų) |
 | `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
 | `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
+| `discovery_scan_results` | Paskutinio viso Open Targets skenavimo rezultatai (filtrai: terapinė sritis, taikinys) |
 | `discovery_record_feedback`, `discovery_review_hypotheses` | Jūsų verdiktas hipotezei (patvirtinta, atmesta, tikrinama, atidėta) ir pasenusių hipotezių paieška: nauji straipsniai ar tyrimai, sustabdyti tyrimai, vėlesnė vaisto stadija, pasikeitusi kryptis, naujas šalutinis poveikis |
 | `discovery_check_hypothesis` | Hipotezės juodraščio kokybės patikra be AI: įrodymų ID, prieštaravimai, alternatyvos su testais, eksperimentai su laukiamais rezultatais, saugumas, kryptis, patikimumas, perdėti teiginiai |
 | `discovery_read_full_text` | Atviros prieigos straipsnio pilnas tekstas: sakiniai apie taikinį pagal skyrius, su neigiamų rezultatų žymomis |
