@@ -12,8 +12,8 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
 
 | Šaltinis | Kam naudojamas |
 |---|---|
-| **Open Targets Platform** (GraphQL API) | Kandidatų paieška. Platforma jungia daugiau kaip 20 šaltinių: GWAS, ClinVar, retų variantų naštos testus, ClinGen, Gene2Phenotype, Orphanet, COSMIC, IntOGen, ChEMBL klinikinius duomenis, IMPC pelių modelius, Reactome, CRISPR, Expression Atlas, Europe PMC. Iš jos imami ir poveikio krypties duomenys (LoF/GoF → rizika/apsauga), vaistingumas, saugumas ir genetinis konservatyvumas |
-| **Europe PMC** | Kiek publikacijų mini porą pavadinime arba santraukoje (ištirtumas), nauji straipsniai, santraukos |
+| **Open Targets Platform** (GraphQL API ir masiniai Parquet failai) | Kandidatų paieška. Platforma jungia daugiau kaip 20 šaltinių: GWAS, ClinVar, retų variantų naštos testus, ClinGen, Gene2Phenotype, Orphanet, COSMIC, IntOGen, ChEMBL klinikinius duomenis, IMPC pelių modelius, Reactome, CRISPR, Expression Atlas, Europe PMC. Iš jos imami ir poveikio krypties duomenys (LoF/GoF → rizika/apsauga), GWAS lokusai ir QTL kolokalizacija, raiška audiniuose ir ląstelėse (GTEx, Tabula Sapiens), vaistingumas, saugumas, pelių fenotipai, FAERS ir teksto analizės sakiniai |
+| **Europe PMC** | Kiek publikacijų mini porą pavadinime arba santraukoje (ištirtumas ir jo kitimas laike), nauji straipsniai, santraukos, atviros prieigos pilni tekstai |
 | **PubMed** (NCBI E-utilities) | Nepriklausomas publikacijų skaičiaus patikrinimas `[tiab]` |
 | **bioRxiv / medRxiv** | Preprintai: randami per Europe PMC, o bioRxiv API patikrina, ar vėliau buvo paskelbti žurnaluose |
 | **ChEMBL** | Junginių bioaktyvumas (pChEMBL), įrankiniai junginiai, žinomi veikimo mechanizmai |
@@ -26,20 +26,23 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
 ## Kaip tai veikia
 
 ```
- Open Targets ──► 1. Kandidatai (iki kelių šimtų taikinio–ligos porų, balai pagal įrodymų tipą)
+ Open Targets ──► 1. Kandidatai (vienai ligai ar taikiniui per API arba visa platforma iš Parquet failų)
                      │   įrodymų stiprumas, preliminarus ištirtumas, vaistingumas, saugumas
                      ▼
                   2. Praturtinimas (lygiagrečiai, kiekvienam geriausiam kandidatui)
-                     │   OT įrodymų įrašai → patikimumas A–D, poveikio kryptis
-                     │   Europe PMC + PubMed + preprintai + patentai + ClinicalTrials → ištirtumas
+                     │   OT įrodymai → patikimumas A–D, kryptis, GWAS lokusas ir QTL kolokalizacija
+                     │   Europe PMC + PubMed + preprintai + patentai + ClinicalTrials → ištirtumas, tendencija,
+                     │     neigiami rezultatai (sakiniai iš literatūros)
                      │   ChEMBL + PDB + UniProt → vaistingumas ir mechanizmas
+                     │   raiška audiniuose / ląstelėse, PheWAS, pelių knockout, vaistų įspėjimai → saugumas
                      ▼
                   3. Balai ir reitingas:  galimybė = įrodymai × spraga × vaistingumas × saugumas × kryptis
                      ▼
-                  4. Hipotezė + savikritika (taisyklėmis arba su Claude)
+                  4. Hipotezė + savikritika (taisyklėmis arba su Claude) + kokybės patikra (0–100)
                      │   pasitikėjimas (GRADE principu), alternatyvūs paaiškinimai, eksperimentai
                      ▼
-                  5. Ataskaitos (Markdown + JSON) ir nuolatinė stebėsena (SQLite atmintis, perspėjimai)
+                  5. Ataskaitos su duomenų versijomis, SQLite atmintis, stebėsena, jūsų verdiktai ir
+                     pasenusių hipotezių perspėjimai
 ```
 
 ### Balai
@@ -161,6 +164,15 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
 pip install -e .
 ```
 
+Papildomos dalys (galima derinti, pvz., `".[mcp,scan]"`):
+
+| Dalis | Kam reikia |
+|---|---|
+| `.[mcp]` | Vietinis MCP serveris Claude Desktop, Claude Code ar Codex programai (be API rakto) |
+| `.[scan]` | Viso Open Targets skenavimas iš Parquet failų (PyArrow) |
+| `.[ai]` | Hipotezės ir tyrimas su Claude API (reikia API rakto) |
+| `.[dev]` | Viskas, kas reikalinga testams |
+
 AI sluoksniui (Claude):
 
 ```bash
@@ -207,6 +219,32 @@ discovery-agent watch config/watchlist.example.yaml
 discovery-agent watch config/watchlist.example.yaml --once
 ```
 
+Visos Open Targets platformos skenavimas (vieną kartą atsisiunčiama ≈ 0,9 GB):
+
+```bash
+discovery-agent scan download --release 26.09
+```
+
+```bash
+discovery-agent scan run --area respiratory --min-lines 2 --no-monogenic --enrich 10
+```
+
+Išsaugotų hipotezių peržiūra ir jūsų verdiktas:
+
+```bash
+discovery-agent review
+```
+
+```bash
+discovery-agent feedback HM-PARN-1a2b3c4d refuted --note "siRNR neturėjo poveikio"
+```
+
+Etalonas (ar balas aukščiau iškelia klinikinius taikinius):
+
+```bash
+discovery-agent benchmark --out docs/BENCHMARK_run.md
+```
+
 Perspėjimai ir ID paieška:
 
 ```bash
@@ -221,22 +259,26 @@ Kalba: `--lang lt` (numatyta) arba `--lang en`. Rezultatai įrašomi į `reports
 `report.md` (reitingas ir visos hipotezės), `result.json` (visi duomenys), `hypotheses/*.md` (po vieną failą
 kiekvienai hipotezei).
 
-### Pavyzdys (tikri duomenys, 2026-11-04)
+### Pavyzdys (tikri duomenys, 2026-11-05, Open Targets 26.09)
 
 `discovery-agent discover --disease "idiopathic pulmonary fibrosis" --top 5 --enrich 8`
 
 | # | Taikinys | Galimybė | Įrodymai | Pagrindas | Spraga | Kryptis | Publ. |
 |---|---|---|---|---|---|---|---|
-| 1 | AKAP13 | 0.393 | 0.64 | genetika 0.64 | 0.78 | nenustatyta | 2 |
-| 2 | PARN | 0.339 | 0.96 | genetika 0.87, kuruota genetika 0.85 | 0.49 | ⬆ aktyvinimas | 24 |
-| 3 | MUC5AC | 0.330 | 0.83 | genetika 0.83 | 0.50 | nenustatyta | 17 |
-| 4 | DPP9 | 0.320 | 0.71 | genetika 0.71 | 0.55 | nenustatyta | 8 |
-| 5 | SFTPA2 | 0.306 | 0.98 | genetika 0.86, kuruota genetika 0.81 | 0.49 | ⬆ aktyvinimas | 20 |
+| 1 | AKAP13 | 0.351 | 0.64 | genetika 0.64 | 0.79 | ⬆ aktyvinimas (0.30) | 2 |
+| 2 | PARN | 0.331 | 0.96 | genetika 0.87, kuruota genetika 0.85 | 0.48 | ⬆ aktyvinimas (0.60) | 24 |
+| 3 | MUC5AC | 0.327 | 0.83 | genetika 0.83 | 0.49 | nenustatyta | 17 |
+| 4 | SFTPA2 | 0.301 | 0.98 | genetika 0.86, kuruota genetika 0.81 | 0.48 | ⬆ aktyvinimas (0.30) | 20 |
+| 5 | DPP9 | 0.294 | 0.71 | genetika 0.71 | 0.55 | ⬆ aktyvinimas (0.59) | 8 |
 
-Pavyzdžiui, MUC5AC hipotezėje agentas pats iškelia alternatyvą „kitas priežastinis genas tame pačiame
-lokuse“ ir įvardija už 21 kb esantį MUC5B. Tai teisingas įspėjimas: MUC5B promotoriaus variantas yra gerai
-žinomas IPF rizikos veiksnys.
-PARN atveju jis pažymi „monogeninio potipio“ ribotumą ir sumažina pasitikėjimo lygį.
+Ką rodo šis pavyzdys:
+
+* **MUC5AC:** agentas iškelia alternatyvą „kitas priežastinis genas tame pačiame lokuse“. Lokuso analizė rodo
+  konkurentą MUC5B (L2G 0,57 prieš 0,12). Įspėjimas teisingas: MUC5B promotoriaus variantas yra gerai
+  žinomas IPF rizikos veiksnys. Kryptis lieka nenustatyta.
+* **DPP9:** kryptis „aktyvinti“ nustatyta iš plaučių fibroblastų eQTL kolokalizacijos (H4 0,997). Saugumo
+  skiltyje pažymėta, kad pelės be šio geno žūsta netrukus po gimimo.
+* **PARN:** agentas pažymi monogeninio potipio ribotumą ir sumažina pasitikėjimo lygį.
 
 ## AI sluoksnis (Claude)
 
@@ -259,6 +301,8 @@ PARN atveju jis pažymi „monogeninio potipio“ ribotumą ir sumažina pasitik
 
 Jei turite **Claude Pro/Max** (Claude Desktop arba Claude Code) ar **ChatGPT** prenumeratą (Codex CLI), API
 raktas nereikalingas. Sistema veikia kaip vietinis **MCP serveris jūsų kompiuteryje**:
+
+Serveris turi **21 įrankį** ir **3 užklausų šablonus**.
 
 * **Mąsto jūsų kliento modelis** (pvz., Claude Claude Desktop programoje), todėl naudojamas jūsų prenumeratos
   limitas, o ne apmokestinamas API.
@@ -304,7 +348,15 @@ discovery-agent mcp --print-config codex
 ```
 
 **Naudojimas.** Tiesiog paprašykite, pvz.: *„Rask mažai ištirtas terapines galimybes idiopatinei plaučių
-fibrozei ir parašyk 3 hipotezes“*. Galima naudoti ir paruoštus užklausų šablonus (MCP prompts):
+fibrozei ir parašyk 3 hipotezes“*. Modelis dirba taip:
+
+1. `discovery_find_opportunities` (arba `discovery_scan_results` – visa platforma) parenka kandidatus;
+2. `discovery_investigate_pair` vienu kvietimu pateikia viską apie porą;
+3. trūkstamą informaciją papildo kitais įrankiais (literatūra, pilni tekstai, klinikiniai tyrimai);
+4. parašo hipotezę ir patikrina ją su `discovery_check_hypothesis`;
+5. išsaugo ją su `discovery_save_hypothesis`.
+
+Galima naudoti ir paruoštus užklausų šablonus (MCP prompts):
 
 * `investigate_disease` – visas ciklas ligai;
 * `write_hypothesis` – viena taikinio–ligos pora;
@@ -315,17 +367,17 @@ Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Cl
 | Įrankis | Ką daro |
 |---|---|
 | `discovery_find_opportunities` | Galimybių reitingas ligai arba naujos indikacijos taikiniui |
-| `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, įvertinti įrodymai, sustabdyti tyrimai, saugumas, vaistai, alternatyvos, svarbiausi santraukų sakiniai su neigiamų rezultatų žymomis (~1,8 tūkst. žetonų) |
+| `discovery_scan_results` | Paskutinio viso Open Targets skenavimo rezultatai (filtrai: terapinė sritis, taikinys) |
+| `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, raiška audiniuose, genetinis saugumas, įvertinti įrodymai, sustabdyti tyrimai, vaistai, alternatyvos, sakiniai su neigiamų rezultatų žymomis, duomenų versijos |
 | `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
 | `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
-| `discovery_scan_results` | Paskutinio viso Open Targets skenavimo rezultatai (filtrai: terapinė sritis, taikinys) |
-| `discovery_record_feedback`, `discovery_review_hypotheses` | Jūsų verdiktas hipotezei (patvirtinta, atmesta, tikrinama, atidėta) ir pasenusių hipotezių paieška: nauji straipsniai ar tyrimai, sustabdyti tyrimai, vėlesnė vaisto stadija, pasikeitusi kryptis, naujas šalutinis poveikis |
-| `discovery_check_hypothesis` | Hipotezės juodraščio kokybės patikra be AI: įrodymų ID, prieštaravimai, alternatyvos su testais, eksperimentai su laukiamais rezultatais, saugumas, kryptis, patikimumas, perdėti teiginiai |
 | `discovery_read_full_text` | Atviros prieigos straipsnio pilnas tekstas: sakiniai apie taikinį pagal skyrius, su neigiamų rezultatų žymomis |
 | `discovery_get_open_targets_evidence`, `discovery_get_target_profile`, `discovery_get_chembl_profile`, `discovery_search_clinical_trials` | Įrodymai, taikinių profiliai, junginiai, klinikiniai tyrimai |
 | `discovery_search_entities` | Ligų, genų ir vaistų ID paieška |
-| `discovery_save_hypothesis` | Įrašo hipotezę į DB ir `.md` failą. Patikrina, ar cituojami įrodymų ID yra rinkinyje, o PMID, DOI ir NCT ID – ar tikrai egzistuoja |
-| `discovery_list_hypotheses`, `discovery_get_hypothesis` | Išsaugotos hipotezės |
+| `discovery_check_hypothesis` | Hipotezės juodraščio kokybės patikra be AI: įrodymų ID, prieštaravimai, alternatyvos su testais, eksperimentai su laukiamais rezultatais, saugumas, kryptis, patikimumas, perdėti teiginiai |
+| `discovery_save_hypothesis` | Įrašo hipotezę į DB ir `.md` failą. Patikrina, ar cituojami įrodymų ID yra rinkinyje, o PMID, DOI ir NCT ID – ar tikrai egzistuoja. Įrašo kokybės balą ir įrodymų būseną |
+| `discovery_list_hypotheses`, `discovery_get_hypothesis` | Išsaugotos hipotezės su jūsų verdiktu ir žyme „pasenusi“ |
+| `discovery_record_feedback`, `discovery_review_hypotheses` | Jūsų verdiktas hipotezei (patvirtinta, atmesta, tikrinama, atidėta) ir pasenusių hipotezių paieška: nauji straipsniai ar tyrimai, sustabdyti tyrimai, vėlesnė vaisto stadija, pasikeitusi kryptis, naujas šalutinis poveikis, naujas Open Targets leidimas |
 | `discovery_run_watchlist`, `discovery_list_alerts`, `discovery_status` | Stebėsena, perspėjimai ir būsena (stebėsenos sąrašas – `~/.local/share/discovery-agent/watchlist.yaml`) |
 
 **Reguliarus paleidimas be API.**
@@ -385,8 +437,13 @@ Pirmas paleidimas sukuria pradinį vaizdą be perspėjimų. Konfigūracijos pavy
 * Ištirtumas matuojamas pagal tai, kiek kartų pora paminėta (pavadinimuose ir santraukose, su sinonimais ir
   tėvine liga). Tai geras, bet netobulas rodiklis. Labai trumpi arba dviprasmiški genų simboliai (pvz., `MET`)
   ieškomi pagal pilną pavadinimą.
-* Patentai imami iš Europe PMC / EPO aprėpties, kuri nėra pilna. Lens.org arba PatentsView prijungti galima
-  kaip papildomą šaltinį (reikia API rakto).
+* Patentai imami iš Europe PMC / EPO aprėpties, kuri nėra pilna.
+* Viso Open Targets skenavimo ištirtumo įvertis grubus (OT literatūros balas ir klinikinė stadija). Jis tik
+  parenka, kur žiūrėti. Galutinį vertinimą duoda `--enrich` arba `discovery_investigate_pair`.
+* Raiška audiniuose imama iš sveikų audinių atlasų. Ji balo neveikia, nes etalonas parodė, kad pagal ją
+  rikiuojant rezultatai prastėja (žr. [`docs/BENCHMARK.md`](docs/BENCHMARK.md)).
+* Užuominos apie poveikio kryptį iš literatūros sakinių ir neigiamų rezultatų žymos nustatomos pagal
+  raktinius žodžius. Tai nuoroda, ką perskaityti, o ne įrodymas.
 * Open Targets duomenys atnaujinami kas ketvirtį. Literatūra, preprintai ir klinikiniai tyrimai tikrinami
   kiekvieno paleidimo metu.
 * Hipotezės yra **tyrimų kryptys mokslininkams, ne išvados**. Jos turi būti patikrintos eksperimentiškai.
@@ -413,12 +470,16 @@ pytest -m live
 ```
 src/discovery_agent/
   sources/        API klientai: opentargets, literature (Europe PMC, PubMed, bioRxiv), chemistry (ChEMBL,
-                  UniProt, PDB), clinical (ClinicalTrials.gov)
-  analysis/       evidence (A–D vertinimas), direction, scoring, critique (pasitikėjimas, alternatyvos)
+                  UniProt, PDB), clinical (ClinicalTrials.gov), versions (duomenų versijos)
+  analysis/       evidence (A–D), direction, locus (L2G, QTL kolokalizacija), expression, phewas
+                  (genetinis saugumas), attention (santykinis dėmesys), sentences, scoring, critique
+                  (pasitikėjimas, alternatyvos), quality (hipotezių kokybės patikra)
   pipeline.py     kandidatai → praturtinimas → balai
+  scan.py         viso Open Targets skenavimas iš Parquet failų
+  benchmark.py    etalonas: ar balas iškelia klinikinius taikinius
   hypothesis.py   hipotezės pagal taisykles
   llm/            Claude: synthesizer, investigator (agentas su įrankiais), dossier
-  monitor/        store (SQLite arba JSON atmintis), watcher (stebėsena, perspėjimai)
+  monitor/        store (SQLite arba JSON atmintis), watcher (stebėsena), review (verdiktai, pasenusios hipotezės)
   managed.py      Claude Managed Agents: paleidimai, rezultatai, webhook'as
   mcp_server.py   vietinis MCP serveris (Claude Desktop / Claude Code / Codex, be API rakto)
   report/         Markdown ataskaitos
@@ -438,7 +499,16 @@ evidence-graded hypotheses. Each hypothesis includes:
 * an A–D reliability grade for every evidence item;
 * a GRADE-style confidence level;
 * alternative explanations, each with a discriminating test;
-* proposed experiments, safety considerations and the competitive landscape.
+* proposed experiments, safety considerations and the competitive landscape;
+* a deterministic quality score (0–100) and the data versions it was built from.
+
+Beyond paper counts, the pipeline uses GWAS locus-to-gene scores and QTL colocalisation for the causal gene
+and the direction of effect, relative and time-trend attention, tissue and cell-type expression, phenome-wide
+genetic safety (the modulation's predicted effect on other diseases), mouse knockouts, drug warnings and FAERS,
+and text-mined sentences with negative-result flags. `discovery-agent scan` ranks every direct target–disease
+pair of an Open Targets release from its Parquet files. `discovery-agent benchmark` measures whether the score
+ranks clinical-stage targets higher (mean AUC 0.61, 4.8× lift in the top 10). `review` and `feedback`
+re-check saved hypotheses and record your verdicts.
 
 The deterministic pipeline works without any API key. With `--ai`, Claude (`claude-opus-5-5`, adaptive
 thinking, schema-constrained output) writes the hypothesis, and every citation is checked against the
@@ -450,7 +520,8 @@ new papers, preprints and trials, and sends alerts. Use `--lang en` for English 
 `discovery-agent mcp` runs a **local MCP server** (stdio) for Claude Desktop, Claude Code, Codex or any MCP
 client. The client's own model does the reasoning, so it runs on your Claude or ChatGPT subscription and needs
 no API key. The server provides the pipeline, the investigation tools and a local SQLite database of dossiers,
-saved hypotheses (with checks of cited evidence ids, PMIDs, DOIs and NCT ids), watchlist runs and alerts.
+saved hypotheses (with checks of cited evidence ids, PMIDs, DOIs and NCT ids, and a quality check), verdicts,
+staleness reviews, watchlist runs and alerts – 21 tools and 3 prompts.
 
 `managed_agents/` deploys the same agent on **Claude Managed Agents**: a weekly scheduled deployment in which
 a lead agent (`claude-opus-5-5`) runs this pipeline from the mounted repository, delegates each new

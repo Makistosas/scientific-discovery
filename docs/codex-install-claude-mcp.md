@@ -73,6 +73,8 @@ BIN/pip install -e ".[dev]"    # includes the MCP SDK and the test dependencies
 ```
 
 **Expected:** the installs finish without errors, and `BIN/discovery-agent --version` prints a version.
+`.[dev]` also installs PyArrow, used by the optional whole-platform scan (`discovery-agent scan …`); the
+scan is not part of this runbook because its download is about 0.9 GB.
 
 ## Step 3 — Offline tests
 
@@ -80,7 +82,7 @@ BIN/pip install -e ".[dev]"    # includes the MCP SDK and the test dependencies
 BIN/python -m pytest -q
 ```
 
-**Expected:** every test passes (more than 100 at the time of writing; some are deselected live tests, which is
+**Expected:** every test passes (about 150 at the time of writing; some are deselected live tests, which is
 fine). If tests fail, stop and report the failure output; do not continue to the client setup.
 
 ## Step 4 — Self-test of this installation

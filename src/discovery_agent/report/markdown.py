@@ -136,7 +136,7 @@ def render_hypothesis(h: Hypothesis, opp: Opportunity, lang: str | None = None, 
     if opp.warnings:
         out += [f"{h3} {tr(lang, 'rep.h.warnings')}", ""] + [f"- {_cell(w)}" for w in opp.warnings] + [""]
     if versions:
-        out += [f"{h3} {tr(lang, 'rep.h.versions')}", "", versions_markdown(versions), ""]
+        out += [f"{h3} {tr(lang, 'rep.h.versions')}", "", versions_markdown(versions, lang), ""]
     return "\n".join(out)
 
 
@@ -149,7 +149,7 @@ def render_report(title: str, opps: list[Opportunity], hypotheses: dict[str, Hyp
         out.append(f"Open Targets: {candidates_considered} → {len(opps)}.")
         out.append("")
     if versions:
-        out += [f"## {tr(lang, 'rep.h.versions')}", "", versions_markdown(versions), ""]
+        out += [f"## {tr(lang, 'rep.h.versions')}", "", versions_markdown(versions, lang), ""]
     out += [f"## {tr(lang, 'rep.h.ranking')}", "", ranking_table(opps, lang), ""]
     for opp in opps:
         h = hypotheses.get(opp.key)
