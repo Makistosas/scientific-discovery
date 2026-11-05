@@ -18,6 +18,7 @@ from .models import Hypothesis, Opportunity
 from .pipeline import DiscoveryPipeline, DiscoveryResult
 from .report import render_hypothesis, render_report
 from .sources import Sources
+from .sources.versions import sources_data_versions
 
 log = logging.getLogger(__name__)
 
@@ -28,11 +29,12 @@ class AgentRun(BaseModel):
     investigation_notes: dict[str, str] = Field(default_factory=dict)
     ai_errors: dict[str, str] = Field(default_factory=dict)
     title: str = ""
+    data_versions: dict = Field(default_factory=dict)
 
     def report_markdown(self) -> str:
         lang = normalize_lang(self.result.params.get("language") or "lt")
         return render_report(self.title, self.result.opportunities, self.hypotheses, lang,
-                             candidates_considered=self.result.candidates_considered)
+                             candidates_considered=self.result.candidates_considered, versions=self.data_versions)
 
 
 class DiscoveryAgent:
@@ -68,7 +70,7 @@ class DiscoveryAgent:
 
     # ------------------------------------------------------------------
     def _finish(self, result: DiscoveryResult, title: str, ai_top: int | None = None) -> AgentRun:
-        run = AgentRun(result=result, title=title)
+        run = AgentRun(result=result, title=title, data_versions=sources_data_versions(self.sources))
         for opp in result.opportunities:
             run.hypotheses[opp.key] = build_hypothesis(opp, self.lang)
         if self.use_ai:
@@ -114,7 +116,8 @@ class DiscoveryAgent:
             if not h:
                 continue
             fname = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{opp.target.symbol}__{opp.disease.id}") + ".md"
-            (hyp_dir / fname).write_text(render_hypothesis(h, opp, self.lang, level=1), encoding="utf-8")
+            (hyp_dir / fname).write_text(render_hypothesis(h, opp, self.lang, level=1, versions=run.data_versions),
+                                         encoding="utf-8")
         return paths
 
 

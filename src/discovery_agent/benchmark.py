@@ -20,6 +20,7 @@ from typing import Callable
 from pydantic import BaseModel, Field
 
 from .analysis.scoring import CAUSAL_WEIGHTS, evidence_strength
+from .sources.versions import data_versions, versions_markdown
 
 DEFAULT_DISEASES = [
     "idiopathic pulmonary fibrosis", "type 2 diabetes mellitus", "rheumatoid arthritis", "Crohn disease",
@@ -55,6 +56,7 @@ class BenchmarkResult(BaseModel):
     diseases: list[DiseaseResult] = Field(default_factory=list)
     skipped: dict[str, str] = Field(default_factory=dict)
     summary: dict[str, dict[str, float]] = Field(default_factory=dict)
+    data_versions: dict = Field(default_factory=dict)
 
 
 def roc_auc(scores: list[float], labels: list[bool]) -> float:
@@ -95,7 +97,8 @@ def run_benchmark(opentargets, diseases: list[str] | None = None, *, size: int =
                   progress: Callable[[str], None] | None = None) -> BenchmarkResult:
     presets = presets or PRESETS
     progress = progress or (lambda m: None)
-    result = BenchmarkResult(size=size)
+    http = getattr(opentargets, "http", None)
+    result = BenchmarkResult(size=size, data_versions=data_versions(http) if http is not None else {})
     for name in diseases or DEFAULT_DISEASES:
         try:
             hint = opentargets.resolve_disease(name)
@@ -140,4 +143,6 @@ def render_markdown(res: BenchmarkResult) -> str:
                      + " | ".join(f"{d.metrics[p]['auc']:.2f}" for p in presets) + " |")
     if res.skipped:
         lines += ["", "Skipped: " + "; ".join(f"{k} ({v})" for k, v in res.skipped.items())]
+    if res.data_versions:
+        lines += ["", "## Data versions", "", versions_markdown(res.data_versions)]
     return "\n".join(lines) + "\n"

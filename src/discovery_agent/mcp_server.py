@@ -44,6 +44,7 @@ from .report.markdown import evidence_basis
 from .sources import Sources
 from .sources.literature import cooccurrence_query, disease_terms, gene_terms
 from .sources.opentargets import OpenTargetsError
+from .sources.versions import sources_data_versions
 
 Progress = Callable[[str], None]
 Format = Literal["markdown", "json"]
@@ -120,15 +121,25 @@ class DiscoveryService:
     def _agent(self, language: str | None, progress: Progress | None) -> DiscoveryAgent:
         return DiscoveryAgent(self._settings(language), sources=self.sources, progress=progress)
 
+    def _versions(self) -> dict:
+        """Data versions, refreshed at most hourly (lookups are also HTTP-cached for a day)."""
+        now = datetime.now(timezone.utc)
+        cached = getattr(self, "_versions_cache", None)
+        if not cached or (now - cached[0]).total_seconds() > 3600:
+            self._versions_cache = (now, sources_data_versions(self.sources))
+        return self._versions_cache[1]
+
     def _remember(self, opp: Opportunity, lang: str) -> dict:
         draft = build_hypothesis(opp, lang)
+        versions = self._versions()
         refs = sorted({r.url or r.label for e in opp.evidence for r in e.references if (r.url or r.label)})
         payload = {"key": opp.key, "symbol": opp.target.symbol, "target_id": opp.target.ensembl_id,
                    "disease": opp.disease.name, "disease_id": opp.disease.id,
                    "evidence_ids": [e.id for e in opp.evidence], "references": refs,
-                   "dossier": build_dossier(opp, draft), "draft_markdown": render_hypothesis(draft, opp, lang),
-                   "quality_context": context_from_opportunity(opp),
-                   "snapshot": snapshot_from_opportunity(opp)}
+                   "dossier": {**build_dossier(opp, draft), "data_versions": versions},
+                   "draft_markdown": render_hypothesis(draft, opp, lang, versions=versions),
+                   "quality_context": context_from_opportunity(opp), "data_versions": versions,
+                   "snapshot": snapshot_from_opportunity(opp, versions)}
         self.store.save_dossier(opp.key, opp.target.symbol, opp.disease.name, payload)
         return payload
 
@@ -260,6 +271,7 @@ class DiscoveryService:
             "text_mining": [{k: x[k] for k in ("pmid", "year", "section", "text", "negative", "cue")}
                             for x in opp.text_sentences[:5]],
             "papers": papers, "literature_query": query, "warnings": opp.warnings,
+            "data_versions": self._versions(),
             "full_dossier": "discovery_analyze_pair (same pair) returns the full graded evidence table",
         }
 
@@ -416,7 +428,7 @@ class DiscoveryService:
                 continue
             reviewed += 1
             self._remember(opp, lang)
-            now = snapshot_from_opportunity(opp)
+            now = snapshot_from_opportunity(opp, self._versions())
             reasons = compare(baseline, now, lang) if baseline else []
             self.store.add_review(hid, bool(reasons), reasons, now)
             item = {"id": hid, "target": symbol, "disease": opp.disease.name, "stale": bool(reasons),
@@ -477,6 +489,23 @@ class DiscoveryService:
              "alerts": [{"kind": a["kind"], "message": a["message"]} for a in s.alerts],
              "report_path": str(s.report_path) if s.report_path else None,
              "digest_path": str(s.digest_path) if s.digest_path else None} for s in summaries]}
+
+    def scan_results(self, *, area: str | None = None, target: str | None = None, limit: int = 30) -> dict:
+        """Latest whole-platform scan written by `discovery-agent scan run`."""
+        files = sorted((self.data_dir / "scan").glob("*/scan.json"), key=lambda p: p.stat().st_mtime)
+        if not files:
+            raise ServiceError("No scan yet. In a terminal run `discovery-agent scan download` (≈ 0.9 GB, once) and "
+                               "`discovery-agent scan run`, then call this tool again.")
+        data = json.loads(files[-1].read_text(encoding="utf-8"))
+        rows = data["rows"]
+        if area:
+            rows = [r for r in rows if any(area.lower() in a.lower() for a in r["therapeutic_areas"])]
+        if target:
+            rows = [r for r in rows if r["symbol"].upper() == target.upper() or r["target_id"] == target]
+        keep = ("symbol", "target_id", "disease", "disease_id", "score", "evidence", "attention", "max_stage",
+                "therapeutic_areas", "datatypes")
+        return {"release": data["release"], "generated": data["generated"], "path": str(files[-1]),
+                "matching": len(rows), "rows": [{k: r[k] for k in keep} for r in rows[:limit]]}
 
     def alerts(self, watch: str | None = None, limit: int = 30) -> list[dict]:
         return [{"created_at": r["created_at"], "watch": r["watch"], "kind": r["kind"], "message": r["message"]}
@@ -838,6 +867,20 @@ def build_server(service: DiscoveryService | None = None):
         return _dump(await blocking(ctx, lambda p: svc().review_hypotheses(
             hypothesis_id=hypothesis_id, limit=limit, language=language, progress=p)))
 
+    @server.tool(name="discovery_scan_results", annotations=ToolAnnotations(
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+        structured_output=False)
+    def scan_results(
+        area: Annotated[str | None, Field(description="Therapeutic area substring, e.g. 'respiratory'")] = None,
+        target: Annotated[str | None, Field(description="Only this gene symbol or Ensembl id")] = None,
+        limit: Annotated[int, Field(ge=1, le=200)] = 30,
+    ) -> str:
+        """Read the latest whole-platform Open Targets scan (every direct target–disease pair ranked by causal
+        evidence × (1 − attention proxy), from bulk Parquet data). Use it to pick candidates across all
+        diseases, then discovery_investigate_pair on the most interesting ones. The scan itself runs in a
+        terminal: `discovery-agent scan download` then `discovery-agent scan run`."""
+        return _dump(call(lambda: svc().scan_results(area=area, target=target, limit=limit)))
+
     @server.tool(name="discovery_run_watchlist", annotations=writes, structured_output=False)
     async def run_watchlist(
         ctx: Context,
@@ -938,7 +981,7 @@ TOOL_NAMES = (
     "discovery_get_open_targets_evidence",
     "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
     "discovery_check_hypothesis", "discovery_save_hypothesis", "discovery_list_hypotheses",
-    "discovery_record_feedback", "discovery_review_hypotheses", "discovery_get_hypothesis",
+    "discovery_record_feedback", "discovery_review_hypotheses", "discovery_scan_results", "discovery_get_hypothesis",
     "discovery_run_watchlist", "discovery_list_alerts", "discovery_status",
 )
 PROMPT_NAMES = ("investigate_disease", "write_hypothesis", "weekly_review")

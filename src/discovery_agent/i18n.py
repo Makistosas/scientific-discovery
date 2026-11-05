@@ -141,6 +141,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ev.lit": {"lt": "Europe PMC: {n} publikacijos(-ų) mini {symbol} ir ligą pavadinime/santraukoje ({recent} per pastaruosius 3 m.); PubMed [tiab]: {pubmed}.",
                "en": "Europe PMC: {n} publications mention {symbol} and the disease in title/abstract ({recent} in the last 3 years); PubMed [tiab]: {pubmed}."},
     "ev.lit.parent": {"lt": " Su tėvine liga „{parent}“: {n}.", "en": " With the parent disease “{parent}”: {n}."},
+    "rep.h.versions": {"lt": "Duomenų versijos", "en": "Data versions"},
+    "stale.release": {"lt": "Naujas Open Targets duomenų leidimas: {old} → {new}.", "en": "New Open Targets data release: {old} → {new}."},
     "stale.papers": {"lt": "Naujų publikacijų: {old} → {new}.", "en": "New publications: {old} → {new}."},
     "stale.trials": {"lt": "Naujų klinikinių tyrimų: {old} → {new}.", "en": "New clinical trials: {old} → {new}."},
     "stale.stopped": {"lt": "Sustabdyta tyrimų: +{n} – patikrinkite priežastis.", "en": "Trials stopped: +{n} – check the reasons."},
