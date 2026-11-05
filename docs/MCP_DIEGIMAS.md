@@ -70,7 +70,7 @@ Toliau komandos parašytos macOS/Linux forma. Windows vietoje `.venv/bin/discove
 Komanda paleidžia serverį taip pat, kaip jį paleis Claude, ir patikrina:
 
 * ar serveris startuoja;
-* ar yra visi 18 įrankių ir 3 šablonai;
+* ar yra visi 20 įrankių ir 3 šablonai;
 * ar veikia vietinė duomenų bazė;
 * ar pasiekiami Open Targets, Europe PMC, ClinicalTrials.gov ir ChEMBL.
 

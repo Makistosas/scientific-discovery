@@ -102,6 +102,15 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
     nėra perdėtų teiginių.
   * Balas (0–100) rodomas kiekvienoje ataskaitoje. MCP jį grąžina įrankiu `discovery_check_hypothesis` ir
     išsaugant hipotezę.
+* **Grįžtamasis ryšys ir pasenusios hipotezės**:
+  * Išsaugant hipotezę įrašoma tuometinė įrodymų būsena: balai, publikacijos, tyrimai, stadija, kryptis,
+    šalutinis poveikis, neigiami straipsniai.
+  * `discovery-agent review` (arba MCP `discovery_review_hypotheses`) iš naujo išanalizuoja porą. Jei atsirado
+    naujų straipsnių ar tyrimų, tyrimas sustabdytas, vaistas pasiekė vėlesnę stadiją, pasikeitė kryptis,
+    atsirado naujas šalutinis poveikis, neigiamas straipsnis ar balas pasikeitė ≥ 30 %, hipotezė pažymima
+    kaip pasenusi ir sukuriamas perspėjimas.
+  * `discovery-agent feedback <id> supported|refuted|testing|parked --note …` įrašo jūsų verdiktą. Atmestos ir
+    atidėtos hipotezės nebeperžiūrimos, o verdiktas rodomas, kai ta pati pora vėl pasirodo paieškoje.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
@@ -291,6 +300,7 @@ Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Cl
 | `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, įvertinti įrodymai, sustabdyti tyrimai, saugumas, vaistai, alternatyvos, svarbiausi santraukų sakiniai su neigiamų rezultatų žymomis (~1,8 tūkst. žetonų) |
 | `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
 | `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
+| `discovery_record_feedback`, `discovery_review_hypotheses` | Jūsų verdiktas hipotezei (patvirtinta, atmesta, tikrinama, atidėta) ir pasenusių hipotezių paieška: nauji straipsniai ar tyrimai, sustabdyti tyrimai, vėlesnė vaisto stadija, pasikeitusi kryptis, naujas šalutinis poveikis |
 | `discovery_check_hypothesis` | Hipotezės juodraščio kokybės patikra be AI: įrodymų ID, prieštaravimai, alternatyvos su testais, eksperimentai su laukiamais rezultatais, saugumas, kryptis, patikimumas, perdėti teiginiai |
 | `discovery_read_full_text` | Atviros prieigos straipsnio pilnas tekstas: sakiniai apie taikinį pagal skyrius, su neigiamų rezultatų žymomis |
 | `discovery_get_open_targets_evidence`, `discovery_get_target_profile`, `discovery_get_chembl_profile`, `discovery_search_clinical_trials` | Įrodymai, taikinių profiliai, junginiai, klinikiniai tyrimai |

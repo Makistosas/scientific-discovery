@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS dossiers (
   created_at TEXT NOT NULL,
   payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hypothesis_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  note TEXT
+);
+CREATE TABLE IF NOT EXISTS reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hypothesis_id TEXT NOT NULL,
+  reviewed_at TEXT NOT NULL,
+  stale INTEGER NOT NULL,
+  reasons TEXT,
+  snapshot TEXT
+);
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   watch TEXT NOT NULL,
@@ -170,6 +186,47 @@ class Store:
     def get_dossier(self, key: str) -> dict | None:
         row = self.conn.execute("SELECT payload FROM dossiers WHERE key = ?", (key,)).fetchone()
         return json.loads(row["payload"]) if row else None
+
+    # -- feedback & reviews ---------------------------------------------------
+    def add_feedback(self, hypothesis_id: str, key: str, status: str, note: str | None = None) -> None:
+        with self._lock:
+            self.conn.execute("INSERT INTO feedback (hypothesis_id, key, created_at, status, note) VALUES (?,?,?,?,?)",
+                              (hypothesis_id, key, now_iso(), status, note))
+            self.conn.commit()
+
+    def feedback(self, hypothesis_id: str) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM feedback WHERE hypothesis_id = ? ORDER BY id", (hypothesis_id,))
+        return [dict(r) for r in rows.fetchall()]
+
+    def latest_feedback(self, hypothesis_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM feedback WHERE hypothesis_id = ? ORDER BY id DESC LIMIT 1",
+                                (hypothesis_id,)).fetchone()
+        return dict(row) if row else None
+
+    def feedback_for_key(self, key: str) -> dict | None:
+        """Most recent feedback on any hypothesis about this target–disease pair."""
+        row = self.conn.execute("SELECT * FROM feedback WHERE key = ? ORDER BY id DESC LIMIT 1", (key,)).fetchone()
+        return dict(row) if row else None
+
+    def add_review(self, hypothesis_id: str, stale: bool, reasons: list[dict], snapshot: dict) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO reviews (hypothesis_id, reviewed_at, stale, reasons, snapshot) VALUES (?,?,?,?,?)",
+                (hypothesis_id, now_iso(), int(stale), json.dumps(reasons, default=str),
+                 json.dumps(snapshot, default=str)))
+            self.conn.commit()
+
+    def last_review(self, hypothesis_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM reviews WHERE hypothesis_id = ? ORDER BY id DESC LIMIT 1",
+                                (hypothesis_id,)).fetchone()
+        if not row:
+            return None
+        return {**dict(row), "reasons": json.loads(row["reasons"] or "[]"), "snapshot": json.loads(row["snapshot"] or "{}")}
+
+    def hypothesis_ids(self) -> list[tuple[str, str]]:
+        """(id, key) of every hypothesis, newest first."""
+        rows = self.conn.execute("SELECT id, key, MAX(created_at) AS c FROM hypotheses GROUP BY id ORDER BY c DESC")
+        return [(r["id"], r["key"]) for r in rows.fetchall()]
 
     def add_alerts(self, watch: str, alerts: list[dict]) -> None:
         with self._lock:

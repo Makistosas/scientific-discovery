@@ -27,6 +27,7 @@ from ..models import Opportunity
 from ..report import render_digest
 from ..sources import Sources
 from ..sources.literature import disease_terms, gene_terms
+from .review import snapshot_from_opportunity
 from .store import JsonStore, Store, open_store
 
 log = logging.getLogger(__name__)
@@ -148,7 +149,8 @@ class Watcher:
             for o in opps:
                 h = run.hypotheses.get(o.key)
                 if h and o.key in changed_keys:
-                    self.store.save_hypothesis(watch.name, o.key, h.model_dump(mode="json"))
+                    self.store.save_hypothesis(watch.name, o.key, {**h.model_dump(mode="json"),
+                                                                   "snapshot": snapshot_from_opportunity(o)})
 
             summary.report_path, summary.digest_path = self.write(watch, agent, run, alerts, run_id)
             self.store.add_alerts(watch.name, alerts)
