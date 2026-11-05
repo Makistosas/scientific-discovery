@@ -143,6 +143,7 @@ class FakeOpenTargets:
 
 
 PUB_COUNTS = {"GENEA": 3, "GENEB": 50, "GENEC": 0, "GENED": 400}
+GENE_COUNTS = {"GENEA": 120}
 
 
 def _symbol_from(genes):
@@ -172,6 +173,12 @@ class FakeEuropePMC:
 
     def patents(self, genes, diseases, *, page_size=10):
         return SearchResult(query="pat", hit_count=0, articles=[])
+
+    def topic_count(self, terms, *, since=None, until=None):
+        sym = _symbol_from(terms)
+        if sym != "?":  # a gene alone
+            return GENE_COUNTS.get(sym, 5000)
+        return 1500 if since else 5000  # the disease field: flat over time
 
     def count(self, query, *, ttl_hours=None):
         self.queries.append(query)

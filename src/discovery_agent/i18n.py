@@ -141,6 +141,30 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ev.lit": {"lt": "Europe PMC: {n} publikacijos(-ų) mini {symbol} ir ligą pavadinime/santraukoje ({recent} per pastaruosius 3 m.); PubMed [tiab]: {pubmed}.",
                "en": "Europe PMC: {n} publications mention {symbol} and the disease in title/abstract ({recent} in the last 3 years); PubMed [tiab]: {pubmed}."},
     "ev.lit.parent": {"lt": " Su tėvine liga „{parent}“: {n}.", "en": " With the parent disease “{parent}”: {n}."},
+    "ev.lit.relative": {
+        "lt": " Tai {share:.2f} % visų ligos publikacijų ({disease}); {symbol} iš viso minimas {gene} publikacijose.",
+        "en": " That is {share:.2f}% of all papers on the disease ({disease}); {symbol} appears in {gene} papers overall."},
+    "ev.lit.trend.rising": {
+        "lt": " Dėmesys auga: {prior} → {recent} publikacijos (ankstesni 3 m. → pastarieji 3 m.), {ratio}× sparčiau nei visa ligos sritis – kiti tyrėjai jau artėja.",
+        "en": " Attention is rising: {prior} → {recent} papers (previous 3 y → last 3 y), {ratio}× faster than the disease field – others are closing in."},
+    "ev.lit.trend.stable": {
+        "lt": " Dėmesys stabilus: {prior} → {recent} publikacijos (ankstesni 3 m. → pastarieji 3 m.).",
+        "en": " Attention is stable: {prior} → {recent} papers (previous 3 y → last 3 y)."},
+    "ev.lit.trend.declining": {
+        "lt": " Dėmesys mažėja: {prior} → {recent} publikacijos (ankstesni 3 m. → pastarieji 3 m.); gali būti, kad kryptis buvo apleista dėl nesėkmių.",
+        "en": " Attention is declining: {prior} → {recent} papers (previous 3 y → last 3 y); the direction may have been dropped after failures."},
+    "ev.lit.trend.sparse": {
+        "lt": " Publikacijų per mažai tendencijai įvertinti ({prior} → {recent}).",
+        "en": " Too few papers to estimate a trend ({prior} → {recent})."},
+    "alt.negative.dark_gene": {
+        "lt": "{symbol} apskritai mažai tirtas ({n} publikacijų): mažą dėmesį greičiausiai lemia įrankių ir žinių apie baltymą trūkumas, o ne nesėkmė.",
+        "en": "{symbol} is little studied overall ({n} papers): low attention more likely reflects a lack of tools and basic knowledge than a failure."},
+    "alt.negative.known_gene": {
+        "lt": "{symbol} gerai ištirtas ({n} publikacijų), bet retai siejamas su šia liga: tai arba tikra spraga, arba nepaskelbti neigiami rezultatai.",
+        "en": "{symbol} is well studied ({n} papers) yet rarely linked to this disease: either a genuine gap or unpublished negative results."},
+    "alt.negative.declining": {
+        "lt": "Publikacijų skaičius mažėja greičiau nei ligos srityje: patikrinkite, ar kryptis nebuvo apleista po nesėkmių.",
+        "en": "Publications are falling faster than in the disease field: check whether the direction was dropped after failures."},
     "ev.preprints": {"lt": "bioRxiv/medRxiv: {n} preprintai(-ų) ({recent} per pastaruosius 2 m.); paskelbti žurnaluose: {published}.",
                      "en": "bioRxiv/medRxiv: {n} preprints ({recent} in the last 2 years); later published in journals: {published}."},
     "ev.trials": {"lt": "ClinicalTrials.gov: {n} intervenciniai tyrimai(-ų) mini {symbol} šiai ligai; sustabdyti: {stopped}.",

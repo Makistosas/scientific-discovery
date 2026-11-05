@@ -11,7 +11,7 @@ from collections import defaultdict
 from typing import Iterable
 
 from ..i18n import tr
-from ..models import (Aspect, Evidence, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
+from ..models import (Aspect, AttentionMetrics, Evidence, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
                       TargetInfo)
 from ..sources.chemistry import ChemblSummary, PdbSummary, UniProtEntry
 from ..sources.clinical import TrialSearch
@@ -225,11 +225,19 @@ def _article_refs(articles: list[Article], limit: int = 3) -> list[Reference]:
 
 
 def literature_evidence(symbol: str, pubs: SearchResult, recent: int, pubmed: int | None, lang: str, *,
-                        parent: str | None = None, parent_count: int | None = None) -> Evidence:
+                        parent: str | None = None, parent_count: int | None = None,
+                        attention: AttentionMetrics | None = None) -> Evidence:
     summary = tr(lang, "ev.lit", n=pubs.hit_count, symbol=symbol, recent=recent,
                  pubmed=pubmed if pubmed is not None else "?")
     if parent and parent_count is not None:
         summary += tr(lang, "ev.lit.parent", parent=parent, n=parent_count)
+    a = attention
+    if a is not None and a.relative_share is not None:
+        summary += tr(lang, "ev.lit.relative", share=a.relative_share * 100, disease=a.disease_publications,
+                      gene=a.gene_publications if a.gene_publications is not None else "?", symbol=symbol)
+    if a is not None and a.trend:
+        summary += tr(lang, f"ev.lit.trend.{a.trend}", prior=a.publications_prior, recent=recent,
+                      ratio=a.trend_ratio)
     return Evidence(
         source="Europe PMC / PubMed", type=EvidenceType.LITERATURE, aspect=Aspect.ATTENTION,
         summary=summary,

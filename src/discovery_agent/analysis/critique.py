@@ -144,6 +144,13 @@ def alternative_explanations(opp: Opportunity, lang: str) -> list[AlternativeExp
     stopped = [e for e in opp.evidence if e.stance is Stance.CONTRADICTS]
     if opp.scores.gap > 0.5 or stopped:
         text = tr(lang, "alt.negative.text") + (" " + tr(lang, "alt.negative.text_stopped") if stopped else "")
+        att = opp.attention
+        if att.gene_publications is not None and att.gene_publications < 300:
+            text += " " + tr(lang, "alt.negative.dark_gene", symbol=opp.target.symbol, n=att.gene_publications)
+        elif att.gene_publications is not None and att.gene_publications >= 3000:
+            text += " " + tr(lang, "alt.negative.known_gene", symbol=opp.target.symbol, n=att.gene_publications)
+        if att.trend == "declining":
+            text += " " + tr(lang, "alt.negative.declining")
         out.append(AlternativeExplanation(
             title=tr(lang, "alt.negative.title"), explanation=text,
             plausibility="high" if stopped else "moderate", how_to_test=tr(lang, "alt.negative.test"),
