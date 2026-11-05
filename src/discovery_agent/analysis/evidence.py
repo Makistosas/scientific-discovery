@@ -11,7 +11,7 @@ from collections import defaultdict
 from typing import Iterable
 
 from ..i18n import tr
-from ..models import (Aspect, AttentionMetrics, Evidence, ExpressionSummary, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
+from ..models import (Aspect, AttentionMetrics, Evidence, ExpressionSummary, GeneticSafety, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
                       TargetInfo)
 from ..sources.chemistry import ChemblSummary, PdbSummary, UniProtEntry
 from ..sources.clinical import TrialSearch
@@ -428,6 +428,52 @@ def expression_evidence(summary: ExpressionSummary, target: TargetInfo, lang: st
         references=[Reference(label=f"Open Targets: {target.symbol} expression",
                               url=f"https://platform.opentargets.org/target/{target.ensembl_id}")],
     )
+
+
+def genetic_safety_evidence(gs: GeneticSafety, target: TargetInfo, lang: str) -> list[Evidence]:
+    """Phenome-wide genetic consequences of the intended modulation, mouse lethality and drug safety signals."""
+    ref = [Reference(label=f"Open Targets: {target.symbol} associations",
+                     url=f"https://platform.opentargets.org/target/{target.ensembl_id}/associations")]
+    mod = tr(lang, f"mod.{'inhibition' if gs.mimics == 'LoF' else 'activation'}") if gs.mimics else ""
+
+    def names(rows: list[dict]) -> str:
+        return "; ".join(f"{r['disease']} ({', '.join(r['sources'])})" for r in rows[:5])
+
+    def grade(rows: list[dict]) -> Reliability:
+        return Reliability.A if any("gene_burden" in r["sources"] for r in rows) else Reliability.B
+
+    items = []
+    if gs.liabilities:
+        items.append(Evidence(
+            source="Open Targets · PheWAS (genetic direction)", type=EvidenceType.SAFETY, aspect=Aspect.SAFETY,
+            summary=tr(lang, "ev.phewas.risk", mod=mod, mimics=gs.mimics, items=names(gs.liabilities)),
+            stance=Stance.NEUTRAL, reliability=grade(gs.liabilities), reliability_rationale=tr(lang, "rel.phewas"),
+            references=ref))
+    if gs.benefits:
+        items.append(Evidence(
+            source="Open Targets · PheWAS (genetic direction)", type=EvidenceType.HUMAN_GENETICS,
+            aspect=Aspect.MECHANISM,
+            summary=tr(lang, "ev.phewas.benefit", mod=mod, mimics=gs.mimics, items=names(gs.benefits)),
+            stance=Stance.NEUTRAL, reliability=grade(gs.benefits), reliability_rationale=tr(lang, "rel.phewas"),
+            references=ref))
+    if gs.mouse_lethal:
+        items.append(Evidence(
+            source="IMPC / MGI mouse knockouts (via Open Targets)", type=EvidenceType.SAFETY, aspect=Aspect.SAFETY,
+            summary=tr(lang, "ev.mouse_lethal", items="; ".join(gs.mouse_lethal)), stance=Stance.NEUTRAL,
+            reliability=Reliability.C, reliability_rationale=tr(lang, "rel.mouse_ko"), references=ref))
+    if gs.drug_warnings or gs.adverse_events:
+        parts = []
+        if gs.drug_warnings:
+            parts.append(tr(lang, "ev.drug_warnings", items="; ".join(
+                f"{w['drug']}: {w['type']}{' (' + w['class'] + ')' if w.get('class') else ''}" for w in gs.drug_warnings[:4])))
+        if gs.adverse_events:
+            parts.append(tr(lang, "ev.faers", items="; ".join(
+                f"{a['drug']}: {', '.join(a['events'])}" for a in gs.adverse_events)))
+        items.append(Evidence(
+            source="ChEMBL warnings & FAERS (via Open Targets)", type=EvidenceType.SAFETY, aspect=Aspect.SAFETY,
+            summary=" ".join(parts), stance=Stance.NEUTRAL, reliability=Reliability.C,
+            reliability_rationale=tr(lang, "rel.faers"), references=ref))
+    return items
 
 
 def assign_ids(items: list[Evidence]) -> list[Evidence]:

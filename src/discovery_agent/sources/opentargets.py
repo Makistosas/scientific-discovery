@@ -294,6 +294,43 @@ class OpenTargetsClient:
                         "cell": (r.get("celltypeBiosample") or {}).get("biosampleName")})
         return out
 
+    def target_safety(self, ensembl_id: str, size: int = 300, max_diseases: int = 40) -> dict:
+        """Phenome-wide genetics (other diseases with LoF/GoF direction), mouse knockout phenotypes and the
+        warnings / FAERS adverse events of drugs acting on the target."""
+        t = self.query(_SAFETY_QUERY, {"t": ensembl_id, "n": size}).get("target") or {}
+        genetic = []
+        for r in (t.get("associatedDiseases") or {}).get("rows") or []:
+            ds = {x["id"]: x["score"] for x in r.get("datasourceScores") or []}
+            g = max(ds.get(k, 0.0) for k in _GENETIC_SOURCES)
+            if g > 0:
+                d = r.get("disease") or {}
+                genetic.append({"id": d.get("id"), "name": d.get("name"), "genetic_score": g,
+                                "areas": [a["name"] for a in d.get("therapeuticAreas") or []]})
+        genetic.sort(key=lambda x: -x["genetic_score"])
+        genetic = genetic[:max_diseases]
+        rows = []
+        if genetic:
+            e = self.query(_SAFETY_EVIDENCE_QUERY, {"t": ensembl_id, "e": [g["id"] for g in genetic]}).get("target") or {}
+            rows = [{"disease_id": (r.get("disease") or {}).get("id"), "source": r.get("datasourceId"),
+                     "score": r.get("score"), "directionOnTarget": r.get("directionOnTarget"),
+                     "directionOnTrait": r.get("directionOnTrait")}
+                    for r in (e.get("evidences") or {}).get("rows") or []]
+        lethal = sorted({m.get("modelPhenotypeLabel") for m in t.get("mousePhenotypes") or []
+                         if "lethal" in (m.get("modelPhenotypeLabel") or "").lower()})
+        drugs = []
+        for r in (t.get("drugAndClinicalCandidates") or {}).get("rows") or []:
+            d = r.get("drug") or {}
+            if not d:
+                continue
+            ae = d.get("adverseEvents") or {}
+            crit = ae.get("criticalValue") or 0.0
+            drugs.append({"id": d.get("id"), "name": d.get("name"), "stage": r.get("maxClinicalStage"),
+                          "warnings": [{"type": w.get("warningType"), "class": w.get("toxicityClass"),
+                                        "description": w.get("description")} for w in d.get("drugWarnings") or []],
+                          "adverse_events": [{"name": x.get("name"), "llr": x.get("logLR")}
+                                             for x in ae.get("rows") or [] if (x.get("logLR") or 0) > crit]})
+        return {"genetic_diseases": genetic, "genetic_rows": rows, "mouse_lethal": lethal, "drugs": drugs}
+
     def pair_evidence(self, disease_id: str, ensembl_id: str,
                       groups: dict[str, tuple[list[str], int]] | None = None) -> dict[str, list[dict]]:
         """Evidence rows for one target–disease pair, grouped (one aliased GraphQL call)."""
@@ -314,6 +351,23 @@ _EXPRESSION_QUERY = """query($t: String!, $n: Int!) { target(ensemblId: $t) {
   baselineExpression(page: {index: 0, size: $n}) { rows {
     datasourceId unit median specificity_score
     tissueBiosample { biosampleName } celltypeBiosample { biosampleName } } } } }"""
+
+
+_GENETIC_SOURCES = ("gwas_credible_sets", "gene_burden", "eva", "genomics_england", "gene2phenotype", "orphanet",
+                    "uniprot_variants", "clingen")
+
+_SAFETY_QUERY = """query($t: String!, $n: Int!) { target(ensemblId: $t) {
+  associatedDiseases(enableIndirect: false, includeMeasurements: false, page: {index: 0, size: $n}) {
+    rows { disease { id name therapeuticAreas { name } } datasourceScores { id score } } }
+  mousePhenotypes { modelPhenotypeLabel }
+  drugAndClinicalCandidates { rows { maxClinicalStage drug { id name
+    drugWarnings { warningType toxicityClass description }
+    adverseEvents(page: {index: 0, size: 8}) { criticalValue rows { name logLR } } } } } } }"""
+
+_SAFETY_EVIDENCE_QUERY = """query($t: String!, $e: [String!]!) { target(ensemblId: $t) {
+  evidences(efoIds: $e, datasourceIds: ["gene_burden", "gwas_credible_sets", "eva", "genomics_england",
+                                        "gene2phenotype", "orphanet", "uniprot_variants", "clingen"], size: 500) {
+    rows { datasourceId disease { id } score directionOnTarget directionOnTrait } } } }"""
 
 
 def usable_synonyms(name: str, groups: list[dict] | None, limit: int = 3) -> list[str]:
