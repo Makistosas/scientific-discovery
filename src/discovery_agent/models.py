@@ -202,6 +202,20 @@ class ScoreBreakdown(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class LocusSummary(BaseModel):
+    """GWAS loci of the pair: competing genes (L2G) and QTL colocalisation (effect direction)."""
+
+    loci: int = 0
+    target_l2g: float | None = None
+    competitors: list[str] = Field(default_factory=list)
+    coloc: list[dict] = Field(default_factory=list)  # type, tissue, strength (H4), sign (+1 risk allele raises expression)
+    splice_tissues: list[str] = Field(default_factory=list)
+    other_coloc_genes: list[str] = Field(default_factory=list)
+    opposite_signs: bool = False
+    conflict: bool = False
+    supported: bool = False
+
+
 class Opportunity(BaseModel):
     target: TargetInfo
     disease: DiseaseInfo
@@ -212,6 +226,7 @@ class Opportunity(BaseModel):
     direction: DirectionAssessment = Field(default_factory=DirectionAssessment)
     evidence: list[Evidence] = Field(default_factory=list)
     locus_neighbors: list[str] = Field(default_factory=list)  # other GWAS-linked genes within ±500 kb
+    locus: LocusSummary | None = None
     enriched: bool = False
     warnings: list[str] = Field(default_factory=list)
 

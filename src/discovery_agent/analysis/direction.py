@@ -31,6 +31,8 @@ DIRECTION_WEIGHT = {
     "eva_somatic": 0.4,
     "impc": 0.3,
     "expression_atlas": 0.15,
+    "pqtl_coloc": 0.9,   # GWAS–protein QTL colocalisation (Mendelian-randomisation-like)
+    "eqtl_coloc": 0.6,   # GWAS–expression QTL colocalisation
 }
 MAX_PER_SOURCE = 2.0  # cap so that 60 ClinVar records do not outvote one burden test
 
@@ -72,7 +74,7 @@ def infer_direction(rows_by_source: dict[str, list[dict]]) -> DirectionAssessmen
                 continue
             score = float(row.get("score") or 0.5)
             per_source[mod] += weight * max(score, 0.2)
-            key = f"{row.get('directionOnTarget') or ('↑' if mod is Modulation.INHIBITION else '↓')}→" \
+            key = row.get("label") or f"{row.get('directionOnTarget') or ('↑' if mod is Modulation.INHIBITION else '↓')}→" \
                   f"{row.get('directionOnTrait') or 'expr'}"
             tallies.setdefault(source, {}).setdefault(key, 0)
             tallies[source][key] += 1

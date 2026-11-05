@@ -388,6 +388,26 @@ def mcp_command(print_config, data_dir, install_target, run_self_test, config_pa
     server.run("stdio")
 
 
+@main.command()
+@click.option("--disease", "-d", "diseases", multiple=True, help="Diseases to include (default: 20 common diseases).")
+@click.option("--size", type=int, default=500, show_default=True, help="Open Targets associations per disease.")
+@click.option("--out", type=click.Path(path_type=Path), default=None, help="Write the Markdown report here.")
+@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of Markdown.")
+@click.pass_context
+def benchmark(ctx, diseases, size, out, as_json):
+    """Measure how well the causal-evidence score ranks clinical-stage targets (yardstick for changes)."""
+    from .benchmark import render_markdown, run_benchmark
+
+    res = run_benchmark(Sources.create(ctx.obj["settings"]).opentargets, list(diseases) or None, size=size,
+                        progress=_progress)
+    text = res.model_dump_json(indent=1) if as_json else render_markdown(res)
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        click.echo(f"Report: {out}", err=True)
+    click.echo(text)
+
+
 @main.command("cache-clear")
 @click.pass_context
 def cache_clear(ctx):

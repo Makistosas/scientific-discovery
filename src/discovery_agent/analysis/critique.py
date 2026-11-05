@@ -91,11 +91,22 @@ def alternative_explanations(opp: Opportunity, lang: str) -> list[AlternativeExp
     gwas = ds.get("gwas_credible_sets", 0.0)
     if gwas > 0:
         text = tr(lang, "alt.locus.text", s=gwas)
+        locus = opp.locus
+        if locus and locus.conflict:
+            details = "; ".join(locus.competitors + locus.other_coloc_genes)
+            text += " " + tr(lang, "alt.locus.conflict", details=details)
+        elif locus and locus.supported:
+            text += " " + tr(lang, "alt.locus.supported", symbol=opp.target.symbol)
         if opp.locus_neighbors:
             text += " " + tr(lang, "alt.locus.neighbors", genes=", ".join(opp.locus_neighbors))
+        if locus and locus.conflict:
+            plaus = "high"
+        elif locus and locus.supported and (locus.target_l2g or 0) >= 0.5:
+            plaus = "low"
+        else:
+            plaus = "high" if gwas < 0.5 or opp.locus_neighbors else ("moderate" if gwas < 0.8 else "low")
         out.append(AlternativeExplanation(
-            title=tr(lang, "alt.locus.title"), explanation=text,
-            plausibility="high" if gwas < 0.5 or opp.locus_neighbors else ("moderate" if gwas < 0.8 else "low"),
+            title=tr(lang, "alt.locus.title"), explanation=text, plausibility=plaus,
             how_to_test=tr(lang, "alt.locus.test"), evidence_ids=ids(lambda e: "GWAS" in e.source)))
 
     if is_mendelian_only(opp):
@@ -144,6 +155,11 @@ def alternative_explanations(opp: Opportunity, lang: str) -> list[AlternativeExp
             plausibility="high", how_to_test=tr(lang, "alt.textmining.test"),
             evidence_ids=ids(lambda e: e.type is EvidenceType.LITERATURE)))
 
+    if opp.locus and opp.locus.opposite_signs:
+        items = "; ".join(f"{v['type']} {v['tissue']} {'+' if v['sign'] > 0 else '−'}" for v in opp.locus.coloc[:6])
+        out.append(AlternativeExplanation(
+            title=tr(lang, "alt.tissue.title"), explanation=tr(lang, "alt.tissue.text", items=items),
+            plausibility="high", how_to_test=tr(lang, "alt.tissue.test")))
     if opp.direction.modulation is Modulation.ACTIVATION:
         out.append(AlternativeExplanation(
             title=tr(lang, "alt.irreversible.title"), explanation=tr(lang, "alt.irreversible.text"),

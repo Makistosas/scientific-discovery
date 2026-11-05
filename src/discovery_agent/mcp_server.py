@@ -31,7 +31,7 @@ from pydantic import Field
 from . import __version__
 from .agent import DiscoveryAgent
 from .config import Settings
-from .hypothesis import build_hypothesis
+from .hypothesis import build_hypothesis, clean_function_text
 from .i18n import normalize_lang
 from .llm.dossier import build_dossier
 from .llm.investigator import TOOLS, ToolSession
@@ -40,6 +40,7 @@ from .monitor.store import Store
 from .report import ranking_table, render_hypothesis
 from .report.markdown import evidence_basis
 from .sources import Sources
+from .sources.literature import cooccurrence_query, disease_terms, gene_terms
 from .sources.opentargets import OpenTargetsError
 
 Progress = Callable[[str], None]
@@ -60,6 +61,30 @@ _PMID = re.compile(r"(?:PMID[:\s]*|pubmed\.ncbi\.nlm\.nih\.gov/)(\d{5,9})", re.I
 _NCT = re.compile(r"\bNCT\d{8}\b")
 _DOI = re.compile(r"\b(10\.\d{4,9}/[^\s\"'<>()\[\]]+[^\s\"'<>()\[\].,;:])")
 _EVIDENCE_ID = re.compile(r"\bE\d{1,3}\b")
+
+
+_NEGATIVE_CUES = ("no significant", "not significant", "did not", "no association", "not associated", "no effect",
+                  "failed to", "no difference", "not improve", "lack of", "negative result", "was not", "were not")
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+
+
+def _clip(text: str | None, n: int) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+def key_sentences(abstract: str, terms: list[str], limit: int = 2) -> list[dict]:
+    """The sentences of an abstract that mention the gene or disease, flagged when they report a null result."""
+    text = re.sub(r"<[^>]+>", " ", abstract or "")
+    scored = []
+    for i, sent in enumerate(_SENTENCE.split(text)):
+        low = sent.lower()
+        hits = sum(1 for t in terms if t and t in low)
+        negative = any(c in low for c in _NEGATIVE_CUES)
+        if hits or negative:
+            scored.append((hits + (1 if negative else 0), -i, sent, negative))
+    best = sorted(scored, reverse=True)[:limit]
+    return [{"text": _clip(s, 320), "negative": neg} for _, _, s, neg in sorted(best, key=lambda x: -x[1])]
 
 
 class ServiceError(RuntimeError):
@@ -145,19 +170,74 @@ class DiscoveryService:
                 "max_clinical_stage": a.max_clinical_stage, "locus_neighbors": o.locus_neighbors,
                 "warnings": o.warnings}
 
-    def analyze_pair(self, target: str, disease: str, *, language: str | None = None,
-                     progress: Progress | None = None) -> dict:
+    def _pair(self, target: str, disease: str, language: str | None, progress: Progress | None):
         agent = self._agent(language, progress)
         try:
             run = agent.run_pair(target, disease)
         except OpenTargetsError as exc:
             raise ServiceError(f"{exc}. Use discovery_search_entities to find the right name or id.") from exc
-        opp = run.result.opportunities[0]
+        return agent, run.result.opportunities[0]
+
+    def analyze_pair(self, target: str, disease: str, *, language: str | None = None,
+                     progress: Progress | None = None) -> dict:
+        agent, opp = self._pair(target, disease, language, progress)
         payload = self._remember(opp, agent.lang)
         path = self.data_dir / "reports" / "pairs" / f"{_slug(opp.target.symbol)}__{_slug(opp.disease.id)}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(payload["draft_markdown"], encoding="utf-8")
         return {**payload, "report_path": str(path)}
+
+    def investigate_pair(self, target: str, disease: str, *, language: str | None = None, max_papers: int = 6,
+                         progress: Progress | None = None) -> dict:
+        """Everything needed to write a hypothesis, pre-digested, in one call (saves tool calls and tokens)."""
+        agent, opp = self._pair(target, disease, language, progress)
+        self._remember(opp, agent.lang)  # store the dossier so save_hypothesis can check evidence ids
+        t, d, s = opp.target, opp.disease, opp.scores
+        evidence = [{"id": e.id, "grade": e.reliability.value, "stance": e.stance.value, "aspect": e.aspect.value,
+                     "source": e.source.split("·")[-1].strip(), "summary": _clip(e.summary, 260),
+                     "ref": next((r.url or r.label for r in e.references if r.pmid or r.url), None)}
+                    for e in opp.evidence]
+        draft = build_hypothesis(opp, agent.lang)
+        papers, query = [], None
+        try:
+            genes = gene_terms(t.symbol, t.name)
+            diseases = disease_terms(d.name, d.synonyms)
+            query = cooccurrence_query(genes, diseases)
+            res = self.sources.europepmc.search(query, page_size=max_papers, sort=None, result_type="core")
+            terms = [g.lower() for g in genes] + [x.lower() for x in diseases]
+            for a in res.articles:
+                sentences = key_sentences(a.abstract or "", terms)
+                papers.append({"pmid": a.pmid, "id": a.id, "year": a.year, "title": _clip(a.title, 160),
+                               "url": a.url, "preprint": a.is_preprint, "key_sentences": sentences,
+                               "negative_cue": any(s["negative"] for s in sentences)})
+        except Exception as exc:  # literature is a bonus, the dossier still stands
+            papers.append({"error": str(exc)[:160]})
+        return {
+            "key": opp.key, "target": t.symbol, "target_name": t.name, "disease": d.name, "disease_id": d.id,
+            "scores": {"opportunity": s.opportunity, "evidence": s.evidence, "gap": s.gap,
+                       "tractability": s.tractability, "safety_risk": s.safety_risk},
+            "direction": {"modulation": opp.direction.modulation.value, "confidence": opp.direction.confidence,
+                          "signals": opp.direction.rationale},
+            "locus": opp.locus.model_dump() if opp.locus else None,
+            "function": clean_function_text(t.function, 2) if t.function else None,
+            "attention": {"publications": opp.attention.publications, "recent": opp.attention.publications_recent,
+                          "parent": opp.attention.parent_disease, "parent_publications": opp.attention.parent_publications,
+                          "preprints": opp.attention.preprints, "trials": opp.attention.trials,
+                          "stopped_trials": opp.attention.trials_stopped, "patents": opp.attention.patents,
+                          "max_clinical_stage": opp.attention.max_clinical_stage},
+            "evidence": evidence,
+            "contradicting": [e["id"] for e in evidence if e["stance"] == "contradicts"],
+            "tractability": {"buckets": t.tractability, "best_compounds": opp.tractability.best_compounds[:3],
+                             "drug_mechanisms": opp.tractability.mechanisms, "pdb": opp.tractability.pdb_structures,
+                             "pdb_with_ligand": opp.tractability.pdb_with_ligand},
+            "known_drugs": [f"{x.name} ({x.max_stage}; {', '.join(x.action_types) or '?'})" for x in t.known_drugs[:6]],
+            "safety": draft.safety_considerations,
+            "alternatives": [{"title": a.title, "plausibility": a.plausibility, "test": a.how_to_test}
+                             for a in draft.alternative_explanations],
+            "draft_confidence": {"level": draft.confidence.level.value, "reasons": draft.confidence.rationale},
+            "papers": papers, "literature_query": query, "warnings": opp.warnings,
+            "full_dossier": "discovery_analyze_pair (same pair) returns the full graded evidence table",
+        }
 
     def search_entities(self, text: str, entity: str | None = None, limit: int = 10) -> list[dict]:
         entities = [entity] if entity else ["target", "disease", "drug"]
@@ -321,8 +401,9 @@ INSTRUCTIONS = """\
 Scientific discovery tools: find target–disease opportunities with strong causal evidence but little
 research attention, investigate them, and keep hypotheses in a local database.
 
-Typical workflow: discovery_find_opportunities (rank candidates) -> discovery_analyze_pair (full graded
-dossier with evidence ids E1, E2, … and a rule-based draft) -> investigate with discovery_search_literature,
+Typical workflow: discovery_find_opportunities (rank candidates) -> discovery_investigate_pair (ONE call:
+compact graded dossier with evidence ids E1, E2, …, direction incl. QTL colocalisation, locus conflicts,
+stopped trials and key abstract sentences) -> fill remaining gaps with discovery_search_literature,
 discovery_read_abstracts, discovery_get_open_targets_evidence, discovery_get_target_profile,
 discovery_get_chembl_profile, discovery_search_clinical_trials -> write the hypothesis yourself ->
 discovery_save_hypothesis. For recurring monitoring use discovery_run_watchlist and discovery_list_alerts.
@@ -465,6 +546,26 @@ def build_server(service: DiscoveryService | None = None):
         return (f"Dossier for **{res['symbol']} – {res['disease']}** (`{res['key']}`), saved to "
                 f"`{res['report_path']}`. Cite evidence ids below; save your hypothesis with "
                 f"discovery_save_hypothesis.\n\n" + res["draft_markdown"])
+
+    @server.tool(name="discovery_investigate_pair", annotations=writes, structured_output=False)
+    async def investigate_pair(
+        ctx: Context,
+        target: Annotated[str, Field(description="Gene symbol or Ensembl id, e.g. 'DPP9'")],
+        disease: Annotated[str, Field(description="Disease name or id")],
+        language: Annotated[Literal["lt", "en"] | None, Field(description="Language of generated text")] = None,
+        max_papers: Annotated[int, Field(ge=0, le=10, description="Most relevant abstracts to digest")] = 6,
+    ) -> str:
+        """ONE call with everything needed to write a hypothesis — use it instead of many separate calls.
+        Returns a compact package: scores; direction of modulation with its signals (LoF/GoF genetics, drug
+        mechanisms, GWAS–eQTL/pQTL colocalisation); GWAS locus assignment (L2G, competing genes, conflicts);
+        graded evidence list (ids E1…, A–D, stance, one reference each); contradicting evidence and stopped
+        trials; tractability, known drugs, safety; rule-based alternative explanations; and the key sentences
+        of the most relevant abstracts with null-result cues flagged. Saves the dossier for
+        discovery_save_hypothesis. Follow up with the single-purpose tools only for gaps.
+        """
+        res = await blocking(ctx, lambda p: svc().investigate_pair(target, disease, language=language,
+                                                                   max_papers=max_papers, progress=p))
+        return json.dumps(res, ensure_ascii=False, separators=(",", ":"), default=str)
 
     @server.tool(name="discovery_search_entities", annotations=ro, structured_output=False)
     def search_entities(
@@ -610,7 +711,8 @@ def build_server(service: DiscoveryService | None = None):
             f"Find under-explored therapeutic opportunities for **{disease}** and turn the best {candidates} into "
             f"evidence-graded hypotheses, written in {lang_name.get(language, language)}.\n\n"
             f"1. discovery_find_opportunities(disease='{disease}', language='{language}').\n"
-            f"2. For each of the top {candidates}: discovery_analyze_pair, then investigate — look first for negative "
+            f"2. For each of the top {candidates}: discovery_investigate_pair (one call), then fill only the gaps with the "
+            "other tools — look first for negative "
             "results and reasons for low attention (stopped trials, toxicity, contradicting genetics), then verify "
             "the direction of modulation, mechanism, related clinical-stage drugs, tractability and safety. Read "
             "abstracts, not just titles.\n"
@@ -626,7 +728,7 @@ def build_server(service: DiscoveryService | None = None):
         """Investigate one target–disease pair and save a rigorous hypothesis."""
         return (
             f"Write a rigorous research hypothesis for **{target} – {disease}** in "
-            f"{lang_name.get(language, language)}. Start with discovery_analyze_pair(target='{target}', "
+            f"{lang_name.get(language, language)}. Start with discovery_investigate_pair(target='{target}', "
             f"disease='{disease}', language='{language}'), investigate with the discovery_* tools (negative results "
             "and stopped trials first), cite evidence ids and references exactly as returned, and save it with "
             "discovery_save_hypothesis. Be sceptical and calibrate confidence conservatively.")
@@ -636,7 +738,7 @@ def build_server(service: DiscoveryService | None = None):
         """Run the watchlist, then investigate what changed and save hypotheses."""
         return (
             "Run discovery_run_watchlist. For each watch, read the alerts: investigate up to three new or changed "
-            "top opportunities (discovery_analyze_pair + investigation tools), skip pairs already covered by recent "
+            "top opportunities (discovery_investigate_pair, then other tools only for gaps), skip pairs already covered by recent "
             "hypotheses (discovery_list_hypotheses), and save new hypotheses with discovery_save_hypothesis. "
             f"Finish with a digest in {lang_name.get(language, language)}: what changed, what you concluded, "
             "confidence, and what to watch next.")
@@ -662,7 +764,7 @@ def client_config(target: str, *, data_dir: str | None = None) -> str:
 
 SERVER_KEY = "scientific-discovery"
 TOOL_NAMES = (
-    "discovery_find_opportunities", "discovery_analyze_pair", "discovery_search_entities",
+    "discovery_find_opportunities", "discovery_analyze_pair", "discovery_investigate_pair", "discovery_search_entities",
     "discovery_search_literature", "discovery_read_abstracts", "discovery_get_open_targets_evidence",
     "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
     "discovery_save_hypothesis", "discovery_list_hypotheses", "discovery_get_hypothesis",

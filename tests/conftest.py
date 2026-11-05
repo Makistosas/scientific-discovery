@@ -116,6 +116,15 @@ class FakeOpenTargets:
         ]
         return t.symbol, rows
 
+    def gwas_loci(self, disease_id, ensembl_id, size=8):
+        if ensembl_id != "ENSG00000000004":
+            return []
+        return [{"locus_id": "LOC1", "study_id": "GCST000001", "trait": "test fibrosis", "n": 5000,
+                 "literature": ["33333333"],
+                 "l2g": [{"gene_id": "ENSG00000000004", "symbol": "GENED", "score": 0.8}],
+                 "coloc": [{"type": "eqtl", "h4": 0.97, "clpp": None, "sign": 1, "study_id": "gtex_lung",
+                            "gene_id": "ENSG00000000004", "symbol": "GENED", "tissue": "lung"}]}]
+
     def pair_evidence(self, disease_id, ensembl_id, groups=None):
         data = EVIDENCE.get(ensembl_id, {})
         if groups:
@@ -173,7 +182,9 @@ class FakeEuropePMC:
     def search(self, query, *, page_size=25, sort=None, result_type="lite", ttl_hours=None):
         self.queries.append(query)
         return SearchResult(query=query, hit_count=2, articles=[
-            Article(id="55555555", source="MED", pmid="55555555", title="A relevant paper", year=2024)])
+            Article(id="55555555", source="MED", pmid="55555555", title="A relevant paper", year=2024,
+                    abstract="Background text. GENEA loss raises test fibrosis risk in carriers. "
+                             "Treatment did not improve lung function in the GENEA trial. Unrelated final sentence.")])
 
 
 class FakePubMed:

@@ -115,7 +115,7 @@ def test_mcp_tools_prompts_and_errors_in_memory(service):
     async def scenario():
         async with Client(server) as c:
             tools = {t.name: t for t in (await c.list_tools()).tools}
-            assert len(tools) == 15 and all(n.startswith("discovery_") for n in tools)
+            assert len(tools) == 16 and all(n.startswith("discovery_") for n in tools)
             assert "ctx" not in tools["discovery_find_opportunities"].input_schema["properties"]
             assert tools["discovery_list_hypotheses"].annotations.read_only_hint is True
             r = await c.call_tool("discovery_find_opportunities", {"disease": "test fibrosis", "top_k": 3,
@@ -141,7 +141,9 @@ def test_mcp_tools_prompts_and_errors_in_memory(service):
             prompts = {p.name for p in (await c.list_prompts()).prompts}
             assert prompts == {"investigate_disease", "write_hypothesis", "weekly_review"}
             p = await c.get_prompt("write_hypothesis", {"target": "GENEA", "disease": "test fibrosis"})
-            assert "discovery_analyze_pair" in p.messages[0].content.text
+            assert "discovery_investigate_pair" in p.messages[0].content.text
+            r = await c.call_tool("discovery_investigate_pair", {"target": "GENED", "disease": "test fibrosis"})
+            assert not r.is_error and json.loads(text(r))["direction"]["modulation"] == "inhibition"
 
     asyncio.run(scenario())
     assert progress  # pipeline progress reached the client
@@ -215,3 +217,32 @@ def test_self_test_offline_against_installed_config(tmp_path, monkeypatch):
     cfg.write_text(json.dumps({"mcpServers": {}}))
     failed = self_test(cfg)
     assert len(failed) == 1 and not failed[0]["ok"] and "--install" in failed[0]["detail"]
+
+
+def test_key_sentences_flag_null_results():
+    from discovery_agent.mcp_server import key_sentences
+
+    text = ("Intro. GENEA variants associate with fibrosis. The GENEA inhibitor did not improve survival. "
+            "Something else entirely.")
+    out = key_sentences(text, ["genea", "fibrosis"])
+    assert [s["negative"] for s in out] == [False, True]
+    assert out[0]["text"].startswith("GENEA variants")
+
+
+def test_investigate_pair_bundle_is_compact_and_saves_dossier(service):
+    res = service.investigate_pair("GENED", "test fibrosis")
+    assert res["direction"]["modulation"] == "inhibition" and res["locus"]["supported"]
+    assert res["contradicting"] and all(set(e) >= {"id", "grade", "stance", "summary"} for e in res["evidence"])
+    paper = res["papers"][0]
+    assert paper["pmid"] == "55555555" and paper["negative_cue"] is True
+    assert service.store.get_dossier(res["key"]) is not None
+    assert len(json.dumps(res)) < 12000
+
+
+def test_investigate_pair_survives_literature_outage(service):
+    def down(*a, **k):
+        raise RuntimeError("HTTP 503")
+
+    service.sources.europepmc.search = down
+    res = service.investigate_pair("GENEA", "test fibrosis")
+    assert res["evidence"] and "503" in res["papers"][0]["error"]

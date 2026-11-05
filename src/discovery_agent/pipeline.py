@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from .analysis import evidence as ev
 from .analysis.direction import infer_direction
+from .analysis.locus import assess_loci
 from .analysis.scoring import ScoringWeights, clinical_stage_for_disease, score_opportunity
 from .config import Settings
 from .i18n import normalize_lang
@@ -187,12 +188,20 @@ class DiscoveryPipeline:
         items = []
 
         groups = self._safe(lambda: s.opentargets.pair_evidence(d.id, t.ensembl_id), opp, "Open Targets evidence")
+        by_source: dict[str, list[dict]] = defaultdict(list)
         if groups:
             items += ev.ot_evidence(groups, t, d.id, lang)
-            by_source: dict[str, list[dict]] = defaultdict(list)
             for rows in groups.values():
                 for r in rows:
                     by_source[r.get("datasourceId") or "?"].append(r)
+        if opp.association.datasource_scores.get("gwas_credible_sets") and hasattr(s.opentargets, "gwas_loci"):
+            loci = self._safe(lambda: s.opentargets.gwas_loci(d.id, t.ensembl_id), opp, "Open Targets GWAS loci")
+            if loci:
+                opp.locus, qtl_rows = assess_loci(loci, t.ensembl_id, t.symbol)
+                for source, rows in qtl_rows.items():
+                    by_source[source].extend(rows)
+                items.append(ev.locus_evidence(opp.locus, loci, t, d.id, lang))
+        if by_source:
             opp.direction = infer_direction(by_source)
 
         genes = gene_terms(t.symbol, t.name)

@@ -152,10 +152,11 @@ class OpenTargetsClient:
         text = text.strip()
         disease_id = text.replace(":", "_") if _DISEASE_ID.match(text.replace(":", "_")) else None
         if disease_id is None:
-            hits = self.search(text, ["disease"], size=1)
+            hits = self.search(text, ["disease"], size=10)
             if not hits:
                 raise OpenTargetsError(f"Disease not found in Open Targets: {text!r}")
-            disease_id = hits[0]["id"]
+            exact = [h for h in hits if h["name"].lower() == text.lower()]  # else trust the search ranking
+            disease_id = (exact or hits)[0]["id"]
         info = self.disease(disease_id)
         if info is None:
             raise OpenTargetsError(f"Unknown disease id: {disease_id}")
@@ -183,15 +184,18 @@ class OpenTargetsClient:
         return parse_disease(d) if d else None
 
     # -- associations -------------------------------------------------------
-    def disease_associations(self, disease_id: str, size: int = 200) -> tuple[DiseaseInfo, list[Association]]:
-        q = """query($id: String!, $size: Int!) { disease(efoId: $id) {
+    def disease_associations(self, disease_id: str, size: int = 200,
+                             datasources: list[dict] | None = None) -> tuple[DiseaseInfo, list[Association]]:
+        """Associated targets ranked by score; `datasources` overrides per-source weights
+        (e.g. weight 0 for clinical evidence to rank by causal evidence only)."""
+        q = """query($id: String!, $size: Int!, $ds: [DatasourceSettingsInput!]) { disease(efoId: $id) {
             """ + _DISEASE_FIELDS + """
-            associatedTargets(page: {index: 0, size: $size}) {
+            associatedTargets(datasources: $ds, page: {index: 0, size: $size}) {
               count
               rows { score novelty datatypeScores { id score } datasourceScores { id score }
                      target { id approvedSymbol approvedName biotype } }
             } } }"""
-        d = self.query(q, {"id": disease_id, "size": size}).get("disease")
+        d = self.query(q, {"id": disease_id, "size": size, "ds": datasources}).get("disease")
         if not d:
             raise OpenTargetsError(f"Unknown disease id: {disease_id}")
         disease = parse_disease(d)
@@ -206,6 +210,14 @@ class OpenTargetsClient:
                 datasource_scores={x["id"]: x["score"] for x in r.get("datasourceScores") or []},
             ))
         return disease, rows
+
+    def clinical_target_ids(self, disease_id: str, size: int = 3000) -> set[str]:
+        """Targets with clinical-precedence evidence (a clinical-stage or approved drug) for the disease."""
+        q = """query($id: String!, $size: Int!) { disease(efoId: $id) {
+            associatedTargets(datasources: [{id: "clinical_precedence", weight: 1, propagate: true, required: true}],
+                              page: {index: 0, size: $size}) { rows { target { id } } } } }"""
+        d = self.query(q, {"id": disease_id, "size": size}).get("disease") or {}
+        return {r["target"]["id"] for r in (d.get("associatedTargets") or {}).get("rows", [])}
 
     def target_associations(self, ensembl_id: str, size: int = 200) -> tuple[str, list[Association]]:
         q = """query($id: String!, $size: Int!) { target(ensemblId: $id) {
@@ -246,6 +258,31 @@ class OpenTargetsClient:
         return found[ensembl_id]
 
     # -- evidence -----------------------------------------------------------
+    def gwas_loci(self, disease_id: str, ensembl_id: str, size: int = 8) -> list[dict]:
+        """GWAS credible sets linking the pair, with locus-to-gene scores of every gene at the locus and
+        colocalisations with expression/protein/splicing QTLs (including the effect-sign ratio)."""
+        d = self.query(_LOCI_QUERY, {"d": disease_id, "t": [ensembl_id], "n": size}).get("disease") or {}
+        out = []
+        for row in (d.get("evidences") or {}).get("rows", []):
+            cs = row.get("credibleSet") or {}
+            if not cs:
+                continue
+            l2g = [{"gene_id": (x.get("target") or {}).get("id"), "symbol": (x.get("target") or {}).get("approvedSymbol"),
+                    "score": x.get("score") or 0.0} for x in (cs.get("l2GPredictions") or {}).get("rows", [])]
+            coloc = []
+            for c in (cs.get("colocalisation") or {}).get("rows", []):
+                st = ((c.get("otherStudyLocus") or {}).get("study") or {})
+                coloc.append({"type": c.get("rightStudyType") or st.get("studyType"), "h4": c.get("h4"), "clpp": c.get("clpp"),
+                              "sign": c.get("betaRatioSignAverage"), "study_id": st.get("id"),
+                              "gene_id": (st.get("target") or {}).get("id"),
+                              "symbol": (st.get("target") or {}).get("approvedSymbol"),
+                              "tissue": (st.get("biosample") or {}).get("biosampleName")})
+            study = cs.get("study") or {}
+            out.append({"locus_id": cs.get("studyLocusId"), "study_id": study.get("id"),
+                        "trait": study.get("traitFromSource"), "n": study.get("nSamples"),
+                        "literature": row.get("literature") or [], "l2g": l2g, "coloc": coloc})
+        return out
+
     def pair_evidence(self, disease_id: str, ensembl_id: str,
                       groups: dict[str, tuple[list[str], int]] | None = None) -> dict[str, list[dict]]:
         """Evidence rows for one target–disease pair, grouped (one aliased GraphQL call)."""
@@ -287,6 +324,18 @@ def parse_disease(d: dict[str, Any]) -> DiseaseInfo:
         parents=[p["name"] for p in d.get("parents") or [] if not p.get("isTherapeuticArea")][:3],
         is_therapeutic_area=bool(d.get("isTherapeuticArea")),
     )
+
+
+_LOCI_QUERY = """query($d: String!, $t: [String!]!, $n: Int!) { disease(efoId: $d) {
+  evidences(ensemblIds: $t, enableIndirect: true, datasourceIds: ["gwas_credible_sets"], size: $n) {
+    rows { score literature
+      credibleSet { studyLocusId beta pValueMantissa pValueExponent
+        study { id nSamples traitFromSource }
+        l2GPredictions(page: {index: 0, size: 5}) { rows { score target { id approvedSymbol } } }
+        colocalisation(studyTypes: [eqtl, pqtl, sceqtl, scpqtl, sqtl], page: {index: 0, size: 50}) { rows {
+          rightStudyType h4 clpp betaRatioSignAverage
+          otherStudyLocus { study { id studyType target { id approvedSymbol } biosample { biosampleName } } } } }
+      } } } } }"""
 
 
 def _protein_id(t: dict[str, Any]) -> str | None:
