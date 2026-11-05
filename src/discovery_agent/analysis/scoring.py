@@ -55,6 +55,8 @@ class ScoringWeights:
     patents_weight: float = 0.3
     preprints_weight: float = 0.25
     parent_weight: float = 0.7         # attention inherited from the parent disease (subtype artefacts)
+    relative_saturation_bp: float = 100  # share of the disease literature (basis points) that counts as saturated
+    rising_weight: float = 0.15        # extra attention when the pair grows ≥ 2× faster than its field
     max_descendants: int = 150         # target mode: skip broad disease categories
     tractability_floor: float = 0.55   # opportunity multiplier for an undruggable target
     safety_penalty: float = 0.35       # max opportunity reduction for maximal safety risk
@@ -101,6 +103,10 @@ def attention_score(att: AttentionMetrics, w: ScoringWeights, *, enriched: bool)
     a_clin = stage_rank(att.max_clinical_stage) / 4.0
     if enriched and att.publications is not None:
         a_lit = saturate(att.publications, w.publications_saturation)
+        if att.relative_share is not None:
+            # geometric mean of absolute and field-relative attention: 30 papers mean more in a small field
+            a_rel = saturate(att.relative_share * 10_000, w.relative_saturation_bp)
+            a_lit = math.sqrt(a_lit * a_rel)
         if att.parent_publications:
             a_lit = max(a_lit, w.parent_weight * saturate(att.parent_publications, w.publications_saturation))
     else:
@@ -111,6 +117,8 @@ def attention_score(att: AttentionMetrics, w: ScoringWeights, *, enriched: bool)
                       * (1.0 - w.trials_weight * saturate(att.trials, w.trials_saturation))
                       * (1.0 - w.patents_weight * saturate(att.patents, w.patents_saturation))
                       * (1.0 - w.preprints_weight * saturate(att.preprints, w.preprints_saturation)))
+        if att.trend == "rising":  # others are publishing now: the gap is closing
+            soft = 1.0 - (1.0 - soft) * (1.0 - w.rising_weight)
     else:
         soft = a_lit
     return round(1.0 - (1.0 - a_clin) * (1.0 - soft), 4)
@@ -179,6 +187,8 @@ def score_opportunity(target: TargetInfo, disease: DiseaseInfo, datatype_scores:
     a = attention_score(attention, w, enriched=enriched)
     t, t_notes = tractability_score(target, tract, direction.modulation)
     s, s_notes = safety_risk(target, direction.modulation)
+    if enriched and attention.trend == "rising":
+        s_notes = s_notes + ["attention_rising"]
     return ScoreBreakdown(
         evidence=e, attention=a, gap=round(1.0 - a, 4), tractability=t, safety_risk=s,
         direction_confidence=direction.confidence, opportunity=combine(e, a, t, s, direction, w),

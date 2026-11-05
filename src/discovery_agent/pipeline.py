@@ -15,13 +15,14 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 
 from .analysis import evidence as ev
 from .analysis.direction import infer_direction
+from .analysis.attention import attention_trend, relative_share
 from .analysis.locus import assess_loci
 from .analysis.scoring import ScoringWeights, clinical_stage_for_disease, score_opportunity
 from .config import Settings
@@ -183,6 +184,26 @@ class DiscoveryPipeline:
             opp.warnings.append(f"{name}: {exc}")
             return None
 
+    def _relative_attention(self, opp: Opportunity, genes: list[str], diseases: list[str],
+                            recent: int | None, since3: str) -> None:
+        """Field size (disease and gene papers) and the pair's trend relative to its field.
+
+        Disease counts are the same for every target of a disease and come from the HTTP cache after the first.
+        """
+        epmc, att = self.sources.europepmc, opp.attention
+        start3 = date.fromisoformat(since3)
+        since6 = date(start3.year - 3, start3.month, 1).isoformat()
+        until_prior = (start3 - timedelta(days=1)).isoformat()
+        att.disease_publications = self._safe(lambda: epmc.topic_count(diseases), opp, "Europe PMC")
+        att.gene_publications = self._safe(lambda: epmc.topic_count(genes), opp, "Europe PMC")
+        att.publications_prior = self._safe(lambda: epmc.count(
+            f"{cooccurrence_query(genes, diseases)} AND (SRC:MED OR SRC:PMC){date_clause(since6, until_prior)}"),
+            opp, "Europe PMC")
+        field_recent = self._safe(lambda: epmc.topic_count(diseases, since=since3), opp, "Europe PMC")
+        field_prior = self._safe(lambda: epmc.topic_count(diseases, since=since6, until=until_prior), opp,
+                                 "Europe PMC")
+        att.trend, att.trend_ratio = attention_trend(recent, att.publications_prior, field_recent, field_prior)
+
     def enrich(self, opp: Opportunity) -> Opportunity:
         s, lang, t, d = self.sources, self.lang, opp.target, opp.disease
         items = []
@@ -215,6 +236,7 @@ class DiscoveryPipeline:
         recent = self._safe(lambda: europepmc.count(
             f"{cooccurrence_query(genes, diseases)} AND (SRC:MED OR SRC:PMC){date_clause(since3)}"), opp, "Europe PMC")
         pubmed = self._safe(lambda: s.pubmed.count(s.pubmed.cooccurrence_term(genes, diseases)), opp, "PubMed")
+        self._relative_attention(opp, genes, diseases, recent, since3)
         # attention inherited from parent diseases guards against subtype artefacts
         # (e.g. "young-onset Parkinson disease" vs. the heavily studied "Parkinson disease")
         for parent in d.parents[:2]:
@@ -223,10 +245,12 @@ class DiscoveryPipeline:
             if n is not None and n > (opp.attention.parent_publications or -1):
                 opp.attention.parent_publications, opp.attention.parent_disease = n, parent
         if pubs is not None:
+            opp.attention.publications = pubs.hit_count
+            opp.attention.relative_share = relative_share(pubs.hit_count, opp.attention.disease_publications)
             items.append(ev.literature_evidence(t.symbol, pubs, recent or 0, pubmed, lang,
                                                 parent=opp.attention.parent_disease,
-                                                parent_count=opp.attention.parent_publications))
-            opp.attention.publications = pubs.hit_count
+                                                parent_count=opp.attention.parent_publications,
+                                                attention=opp.attention))
             opp.attention.publications_recent = recent
         opp.attention.pubmed = pubmed
 

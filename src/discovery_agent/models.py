@@ -176,6 +176,12 @@ class AttentionMetrics(BaseModel):
     ot_literature_score: float = 0.0
     parent_publications: int | None = None   # co-mentions with the closest parent disease
     parent_disease: str | None = None
+    publications_prior: int | None = None    # co-mentions 3–6 years ago (trend baseline)
+    disease_publications: int | None = None  # all papers on the disease (title/abstract)
+    gene_publications: int | None = None     # all papers on the gene (title/abstract)
+    relative_share: float | None = None      # co-mentions / disease papers
+    trend: str | None = None                 # rising | stable | declining | sparse (relative to the field)
+    trend_ratio: float | None = None         # pair growth ÷ disease-field growth, last 3 y vs the 3 y before
 
 
 class TractabilityMetrics(BaseModel):

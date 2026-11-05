@@ -130,6 +130,11 @@ class EuropePMCClient:
         return int(data.get("hitCount") or 0)
 
     # Convenience wrappers ---------------------------------------------------
+    def topic_count(self, terms: list[str], *, since: date | str | None = None,
+                    until: date | str | None = None) -> int:
+        """Peer-reviewed papers mentioning any of the terms in title/abstract (a gene or a disease alone)."""
+        return self.count(f"{title_abstract_clause(terms)} AND (SRC:MED OR SRC:PMC){date_clause(since, until)}")
+
     def publications(self, genes: list[str], diseases: list[str], *, since: date | str | None = None,
                      page_size: int = 10, ttl_hours: float | None = None) -> SearchResult:
         q = f"{cooccurrence_query(genes, diseases)} AND (SRC:MED OR SRC:PMC){date_clause(since)}"
