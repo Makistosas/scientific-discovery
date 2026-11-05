@@ -72,7 +72,12 @@ def build_hypothesis(opp: Opportunity, lang: str = "lt") -> Hypothesis:
     uncertainties = []
     if mod is Modulation.UNKNOWN or opp.direction.confidence < 0.5:
         uncertainties.append(tr(lang, "unc.direction"))
-    uncertainties.append(tr(lang, "unc.tissue"))
+    cells = [r for r in (opp.expression.relevant if opp.expression else []) if r.get("cell")][:3]
+    if cells:
+        uncertainties.append(tr(lang, "unc.tissue.cells", cells="; ".join(
+            " · ".join(x for x in (r.get("tissue"), r["cell"]) if x) for r in cells)))
+    else:
+        uncertainties.append(tr(lang, "unc.tissue"))
     if mod is Modulation.ACTIVATION or "activation_hard" in opp.scores.notes:
         uncertainties.append(tr(lang, "unc.activation"))
     if not opp.tractability.potent_compounds and not t.high_quality_probes:

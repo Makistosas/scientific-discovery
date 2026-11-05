@@ -283,6 +283,17 @@ class OpenTargetsClient:
                         "literature": row.get("literature") or [], "l2g": l2g, "coloc": coloc})
         return out
 
+    def baseline_expression(self, ensembl_id: str, size: int = 2000) -> list[dict]:
+        """Baseline RNA/protein expression rows: GTEx tissues, Tabula Sapiens cell types, PRIDE proteomics."""
+        t = self.query(_EXPRESSION_QUERY, {"t": ensembl_id, "n": size}).get("target") or {}
+        out = []
+        for r in ((t.get("baselineExpression") or {}).get("rows") or []):
+            out.append({"source": r.get("datasourceId"), "unit": r.get("unit"), "value": r.get("median"),
+                        "specificity": r.get("specificity_score"),
+                        "tissue": (r.get("tissueBiosample") or {}).get("biosampleName"),
+                        "cell": (r.get("celltypeBiosample") or {}).get("biosampleName")})
+        return out
+
     def pair_evidence(self, disease_id: str, ensembl_id: str,
                       groups: dict[str, tuple[list[str], int]] | None = None) -> dict[str, list[dict]]:
         """Evidence rows for one target–disease pair, grouped (one aliased GraphQL call)."""
@@ -297,6 +308,12 @@ class OpenTargetsClient:
         q = "query($d: String!, $t: String!) { disease(efoId: $d) { " + " ".join(parts) + " } }"
         d = self.query(q, {"d": disease_id, "t": ensembl_id}).get("disease") or {}
         return {alias: (d.get(alias) or {}).get("rows", []) for alias in groups}
+
+
+_EXPRESSION_QUERY = """query($t: String!, $n: Int!) { target(ensemblId: $t) {
+  baselineExpression(page: {index: 0, size: $n}) { rows {
+    datasourceId unit median specificity_score
+    tissueBiosample { biosampleName } celltypeBiosample { biosampleName } } } } }"""
 
 
 def usable_synonyms(name: str, groups: list[dict] | None, limit: int = 3) -> list[str]:

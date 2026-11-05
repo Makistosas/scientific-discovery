@@ -67,3 +67,26 @@ klinikinius tyrimus? Tai matavimo priemonė scoringo pakeitimams lyginti. Ji ne�
 | osteoarthritis | 499 | 10 | 0.57 | 0.56 | 0.63 | 0.57 |
 | breast carcinoma | 489 | 54 | 0.48 | 0.45 | 0.51 | 0.48 |
 | Hypercholesterolemia | 499 | 7 | 0.90 | 0.90 | 0.90 | 0.90 |
+
+## Ar raiška ligai aktualiuose audiniuose pagerina rikiavimą? Ne
+
+Bandymas apėmė 10 ligų (IPF, Krono liga, Alzheimerio liga, astma, psoriazė, 2 tipo diabetas, koronarinė
+širdies liga, reumatoidinis artritas, LOPL, atopinis dermatitas). Imta po 200 kandidatų, surikiuotų be
+klinikinių ir literatūros duomenų. Įrodymų balas buvo dauginamas iš raiškos daugiklio: raiška yra – 1,0,
+silpna – 0,85 arba 0,7, nėra – 0,7 arba 0,5.
+
+| Variantas | Vidutinis AUC | P@10 |
+|---|---|---|
+| Be raiškos | 0,643 | 0,28 |
+| Silpna 0,85 / nėra 0,7 | 0,629 | 0,21 |
+| Silpna 0,7 / nėra 0,5 | 0,606 | 0,21 |
+
+Klinikinių taikinių dalis pagal raiškos būseną:
+* tarp taikinių su **silpna** raiška – 13 % (19 iš 143);
+* tarp **išreikštų** – 7 % (132 iš 1843).
+
+Priežastis: dauguma vaistų taikinių uždegiminėse ligose yra citokinai, jų receptoriai imuninėse ląstelėse ir
+cirkuliuojantys baltymai. Sveiko audinio atlase jie yra kitur, nei pažeistas organas.
+
+Todėl raiška balo **neveikia**. Ji naudojama tik kaip mechanizmo įrodymas, kaip alternatyva „veikia per kitą
+audinį“ ir kaip ląstelių tipų pasiūlymai eksperimentams.

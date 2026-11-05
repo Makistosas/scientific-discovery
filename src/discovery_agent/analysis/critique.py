@@ -167,6 +167,16 @@ def alternative_explanations(opp: Opportunity, lang: str) -> list[AlternativeExp
         out.append(AlternativeExplanation(
             title=tr(lang, "alt.tissue.title"), explanation=tr(lang, "alt.tissue.text", items=items),
             plausibility="high", how_to_test=tr(lang, "alt.tissue.test")))
+    expr = opp.expression
+    if expr and expr.status in ("low", "absent"):
+        from .expression import describe
+        where = "; ".join(describe(r) for r in expr.top_cells[:2]) or (expr.top_tissue or "?")
+        out.append(AlternativeExplanation(
+            title=tr(lang, "alt.othertissue.title"),
+            explanation=tr(lang, "alt.othertissue.text", symbol=opp.target.symbol,
+                           tissues=", ".join(expr.keywords[:4]), where=where),
+            plausibility="high" if expr.status == "absent" else "moderate", how_to_test=tr(lang, "alt.othertissue.test"),
+            evidence_ids=ids(lambda e: e.source.startswith("Open Targets · baseline expression"))))
     if opp.direction.modulation is Modulation.ACTIVATION:
         out.append(AlternativeExplanation(
             title=tr(lang, "alt.irreversible.title"), explanation=tr(lang, "alt.irreversible.text"),

@@ -66,6 +66,17 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
     fibroblastų eQTL.
   * Splaisingo QTL patvirtina geną, bet krypčiai nenaudojami. Priešingi ženklai skirtinguose audiniuose
     pažymimi kaip atskira alternatyva.
+* **Santykinis dėmesys ir tendencija**:
+  * Bendrų paminėjimų skaičius lyginamas su visos ligos literatūra, todėl 30 straipsnių retoje ligoje sveria
+    daugiau nei Alzheimerio ligos tyrimuose.
+  * Paskutinių 3 metų publikacijos lyginamos su ankstesniais 3 metais, atsižvelgiant į visos srities augimą.
+    Sparčiai augantis dėmesys reiškia, kad kiti tyrėjai jau artėja.
+* **Raiška audiniuose ir ląstelėse** (GTEx, Tabula Sapiens, PRIDE per Open Targets):
+  * Ligai aktualūs audiniai nustatomi pagal ligos pavadinimą, QTL kolokalizacijos audinius arba
+    terapinę sritį.
+  * Tikrinama, ar taikinys ten išreikštas. Silpna raiška tampa alternatyva „veikia per kitą audinį“.
+  * Pateikiami didžiausios raiškos ląstelių tipai: tai kandidatai eksperimentams.
+  * Fono užterštumas atmetamas: raiška turi siekti bent 2 % paties geno maksimumo.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
