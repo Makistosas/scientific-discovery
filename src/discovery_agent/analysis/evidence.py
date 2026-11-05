@@ -11,7 +11,8 @@ from collections import defaultdict
 from typing import Iterable
 
 from ..i18n import tr
-from ..models import Aspect, Evidence, EvidenceType, Modulation, Reference, Reliability, Stance, TargetInfo
+from ..models import (Aspect, Evidence, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
+                      TargetInfo)
 from ..sources.chemistry import ChemblSummary, PdbSummary, UniProtEntry
 from ..sources.clinical import TrialSearch
 from ..sources.literature import Article, SearchResult
@@ -362,6 +363,42 @@ def safety_evidence(target: TargetInfo, lang: str) -> list[Evidence]:
             stance=Stance.SUPPORTS, reliability=Reliability.B, reliability_rationale=tr(lang, "rel.chembl"),
             references=base_ref))
     return items
+
+
+def locus_evidence(summary: LocusSummary, loci: list[dict], target: TargetInfo, disease_id: str,
+                   lang: str) -> Evidence:
+    """GWAS locus assignment (L2G, competing genes) and QTL colocalisation direction as one evidence item."""
+    parts = [tr(lang, "ev.locus", n=summary.loci, symbol=target.symbol,
+                l2g=f"{summary.target_l2g:.2f}" if summary.target_l2g is not None else "?")]
+    if summary.competitors:
+        parts.append(tr(lang, "ev.locus.competitors", genes=", ".join(summary.competitors)))
+    if summary.coloc:
+        parts.append(tr(lang, "ev.locus.coloc", items="; ".join(
+            f"{v['type']} {v['tissue']} H4 {v['strength']:.2f} "
+            f"({tr(lang, 'ev.locus.up' if v['sign'] > 0 else 'ev.locus.down')})" for v in summary.coloc[:4])))
+    elif summary.splice_tissues:
+        parts.append(tr(lang, "ev.locus.splice", tissues=", ".join(summary.splice_tissues)))
+    else:
+        parts.append(tr(lang, "ev.locus.no_coloc"))
+    if summary.other_coloc_genes:
+        parts.append(tr(lang, "ev.locus.other", genes=", ".join(summary.other_coloc_genes)))
+    votes = [v for v in summary.coloc if v["type"] in ("pqtl", "scpqtl", "eqtl", "sceqtl")]
+    strong = any(v["strength"] >= 0.9 for v in votes)
+    reliability = Reliability.A if strong and not summary.opposite_signs and not summary.conflict else Reliability.B
+    direction = None
+    if votes and not summary.opposite_signs:
+        direction = Modulation.INHIBITION if votes[0]["sign"] > 0 else Modulation.ACTIVATION
+    refs = [Reference(label=f"Open Targets credible set {l['study_id'] or ''}".strip(),
+                      url=f"https://platform.opentargets.org/credible-set/{l['locus_id']}")
+            for l in loci[:3] if l.get("locus_id")]
+    refs += _pmid_refs([{"literature": l.get("literature")} for l in loci], limit=3)
+    return Evidence(
+        source="Open Targets · GWAS locus-to-gene & QTL colocalisation", type=EvidenceType.HUMAN_GENETICS,
+        aspect=Aspect.DIRECTION, summary=" ".join(parts),
+        stance=Stance.SUPPORTS if summary.supported else Stance.NEUTRAL, reliability=reliability,
+        reliability_rationale=tr(lang, "rel.coloc"), strength=summary.target_l2g or 0.0,
+        effect_direction=direction, references=refs,
+    )
 
 
 def assign_ids(items: list[Evidence]) -> list[Evidence]:

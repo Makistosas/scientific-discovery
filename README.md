@@ -58,6 +58,17 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
   praradimo (gnomAD LOEUF), pleiotropija.
 * **Kryptis**: iš žmogaus genetikos ir klinikos (LoF→rizika ⇒ aktyvinti; GoF→rizika arba LoF→apsauga ⇒
   slopinti). Kiekvieno šaltinio įtaka apribota, kad 60 ClinVar įrašų nenusvertų vieno naštos testo.
+* **GWAS lokusas ir raiškos kolokalizacija**:
+  * Kiekvienam GWAS lokusui tikrinami visų lokuso genų L2G balai, todėl matyti konkuruojantys genai, pvz.,
+    MUC5AC lokuse – MUC5B.
+  * Tikrinama ir kolokalizacija su eQTL/pQTL. Jei rizikos alelis mažina geno raišką, siūloma aktyvinti, o jei
+    didina – slopinti (Mendelinės randomizacijos logika). Pvz., DPP9 IPF atveju kryptis nustatoma iš
+    fibroblastų eQTL.
+  * Splaisingo QTL patvirtina geną, bet krypčiai nenaudojami. Priešingi ženklai skirtinguose audiniuose
+    pažymimi kaip atskira alternatyva.
+* **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
+  20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
+  [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
 
 ### Patikimumas ir savikritika
 
@@ -241,6 +252,7 @@ Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Cl
 | Įrankis | Ką daro |
 |---|---|
 | `discovery_find_opportunities` | Galimybių reitingas ligai arba naujos indikacijos taikiniui |
+| `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, įvertinti įrodymai, sustabdyti tyrimai, saugumas, vaistai, alternatyvos, svarbiausi santraukų sakiniai su neigiamų rezultatų žymomis (~1,8 tūkst. žetonų) |
 | `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
 | `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
 | `discovery_get_open_targets_evidence`, `discovery_get_target_profile`, `discovery_get_chembl_profile`, `discovery_search_clinical_trials` | Įrodymai, taikinių profiliai, junginiai, klinikiniai tyrimai |

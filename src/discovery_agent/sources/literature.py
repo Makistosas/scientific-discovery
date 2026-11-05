@@ -36,6 +36,7 @@ class Article(BaseModel):
     first_publication_date: str | None = None
     authors: str | None = None
     cited_by: int | None = None
+    abstract: str | None = None  # only with resultType=core
 
     @property
     def is_preprint(self) -> bool:
@@ -160,6 +161,7 @@ def parse_article(r: dict) -> Article:
         first_publication_date=r.get("firstPublicationDate"),
         authors=r.get("authorString"),
         cited_by=r.get("citedByCount"),
+        abstract=r.get("abstractText"),
     )
 
 

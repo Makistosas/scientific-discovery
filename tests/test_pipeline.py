@@ -58,3 +58,13 @@ def test_failing_source_becomes_warning(sources, settings):
     opp = result.opportunities[0]
     assert any("UniProt down" in w for w in opp.warnings)
     assert opp.enriched
+
+
+def test_qtl_colocalisation_sets_direction(sources, settings):
+    opp = DiscoveryPipeline(sources, settings).analyze_pair("GENED", "test fibrosis").opportunities[0]
+    assert opp.locus and opp.locus.supported and opp.locus.coloc[0]["tissue"] == "lung"
+    # GWAS row has no LoF/GoF annotation; expression up-regulation (expression atlas) and eQTL both say inhibit
+    assert opp.direction.modulation is Modulation.INHIBITION
+    locus_items = [e for e in opp.evidence if "colocalisation" in e.source]
+    assert locus_items and locus_items[0].effect_direction is Modulation.INHIBITION
+    assert locus_items[0].references[0].url.endswith("/credible-set/LOC1")
