@@ -129,7 +129,12 @@ class HttpClient:
         """GET a non-JSON body (e.g. full-text XML); cached like JSON responses."""
         headers = {"Accept": "application/xml, text/plain, */*", **(headers or {})}
         return self._request("GET", url, params=params, payload=None, ttl_hours=ttl_hours, headers=headers,
-                             as_text=True)
+                             mode="text")
+
+    def get_headers(self, url: str, params: dict | None = None, *, ttl_hours: float | None = None) -> dict:
+        """Response headers of a GET (lower-case keys), e.g. a release header; cached like bodies."""
+        return self._request("GET", url, params=params, payload=None, ttl_hours=ttl_hours, headers=None,
+                             mode="headers")
 
     def post_json(self, url: str, payload: Any, *, ttl_hours: float | None = None,
                   headers: dict | None = None) -> Any:
@@ -150,9 +155,9 @@ class HttpClient:
         return hashlib.sha256(blob.encode()).hexdigest()
 
     def _request(self, method: str, url: str, *, params: dict | None, payload: Any,
-                 ttl_hours: float | None, headers: dict | None, as_text: bool = False) -> Any:
+                 ttl_hours: float | None, headers: dict | None, mode: str = "json") -> Any:
         ttl = self.settings.cache_ttl_hours if ttl_hours is None else ttl_hours
-        key = self.cache_key(method + (":text" if as_text else ""), url, params, payload)
+        key = self.cache_key(method + ("" if mode == "json" else f":{mode}"), url, params, payload)
         if self.cache is not None and ttl > 0:
             cached = self.cache.get(key, ttl * 3600)
             if cached is not None:
@@ -185,8 +190,10 @@ class HttpClient:
             if response.status_code >= 400:
                 snippet = (response.text or "")[:300]
                 raise HttpError(f"HTTP {response.status_code} for {url}: {snippet}", response.status_code, url)
-            if as_text:
+            if mode == "text":
                 data = response.text
+            elif mode == "headers":
+                data = {k.lower(): v for k, v in response.headers.items()}
             else:
                 try:
                     data = response.json()

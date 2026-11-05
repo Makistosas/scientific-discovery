@@ -18,9 +18,10 @@ FEEDBACK_STATUSES = ("proposed", "testing", "supported", "refuted", "parked")
 CLOSED = ("refuted", "parked")
 
 
-def snapshot_from_opportunity(opp: Opportunity) -> dict:
+def snapshot_from_opportunity(opp: Opportunity, versions: dict | None = None) -> dict:
     a, s, gs = opp.attention, opp.scores, opp.genetic_safety
     return {
+        "open_targets_release": (versions or {}).get("open_targets"),
         "opportunity": s.opportunity, "evidence": s.evidence, "gap": s.gap, "safety_risk": s.safety_risk,
         "publications": a.publications, "publications_recent": a.publications_recent, "trials": a.trials,
         "trials_stopped": a.trials_stopped, "patents": a.patents, "max_clinical_stage": a.max_clinical_stage,
@@ -60,6 +61,9 @@ def compare(old: dict, new: dict, lang: str) -> list[dict]:
     neg = [p for p in new.get("negative_pmids") or [] if p not in (old.get("negative_pmids") or [])]
     if neg:
         add("negative", pmids=", ".join(neg[:3]))
+    if old.get("open_targets_release") and new.get("open_targets_release") \
+            and old["open_targets_release"] != new["open_targets_release"]:
+        add("release", old=old["open_targets_release"], new=new["open_targets_release"])
     o, n = old.get("opportunity") or 0.0, new.get("opportunity") or 0.0
     if o > 0 and abs(n - o) / o >= 0.3:
         add("score", old=round(o, 3), new=round(n, 3))

@@ -111,6 +111,10 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
     kaip pasenusi ir sukuriamas perspėjimas.
   * `discovery-agent feedback <id> supported|refuted|testing|parked --note …` įrašo jūsų verdiktą. Atmestos ir
     atidėtos hipotezės nebeperžiūrimos, o verdiktas rodomas, kai ta pati pora vėl pasirodo paieškoje.
+* **Duomenų versijos**: kiekviena ataskaita, hipotezė, MCP įrodymų rinkinys ir etalonas nurodo, kokiais
+  duomenimis remtasi – Open Targets leidimą (pvz., 26.09), ChEMBL ir UniProt leidimus, ClinicalTrials.gov
+  duomenų datą, užklausos laiką ir HTTP kešo trukmę. Kai išeina naujas Open Targets leidimas, išsaugotos
+  hipotezės peržiūroje pažymimos kaip pasenusios.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).

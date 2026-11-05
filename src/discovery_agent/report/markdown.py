@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from ..analysis.quality import check_hypothesis
+from ..sources.versions import versions_markdown
 from ..i18n import tr
 from ..models import Evidence, Hypothesis, Opportunity, Stance
 
@@ -63,7 +64,8 @@ def evidence_table(opp: Opportunity, lang: str) -> str:
     return "\n".join(lines)
 
 
-def render_hypothesis(h: Hypothesis, opp: Opportunity, lang: str | None = None, level: int = 2) -> str:
+def render_hypothesis(h: Hypothesis, opp: Opportunity, lang: str | None = None, level: int = 2,
+                      versions: dict | None = None) -> str:
     lang = lang or h.language
     hx = "#" * level
     h3 = "#" * (level + 1)
@@ -133,17 +135,21 @@ def render_hypothesis(h: Hypothesis, opp: Opportunity, lang: str | None = None, 
         out += [tr(lang, "rep.quality.ok", score=q.score), ""]
     if opp.warnings:
         out += [f"{h3} {tr(lang, 'rep.h.warnings')}", ""] + [f"- {_cell(w)}" for w in opp.warnings] + [""]
+    if versions:
+        out += [f"{h3} {tr(lang, 'rep.h.versions')}", "", versions_markdown(versions), ""]
     return "\n".join(out)
 
 
 def render_report(title: str, opps: list[Opportunity], hypotheses: dict[str, Hypothesis], lang: str,
-                  *, candidates_considered: int | None = None) -> str:
+                  *, candidates_considered: int | None = None, versions: dict | None = None) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     out = [f"# {title}", "", f"_{tr(lang, 'rep.generated', ts=ts)}_", ""]
     out += [f"## {tr(lang, 'rep.h.method')}", "", tr(lang, "rep.method"), ""]
     if candidates_considered:
         out.append(f"Open Targets: {candidates_considered} → {len(opps)}.")
         out.append("")
+    if versions:
+        out += [f"## {tr(lang, 'rep.h.versions')}", "", versions_markdown(versions), ""]
     out += [f"## {tr(lang, 'rep.h.ranking')}", "", ranking_table(opps, lang), ""]
     for opp in opps:
         h = hypotheses.get(opp.key)

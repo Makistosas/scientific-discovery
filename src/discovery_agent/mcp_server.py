@@ -44,6 +44,7 @@ from .report.markdown import evidence_basis
 from .sources import Sources
 from .sources.literature import cooccurrence_query, disease_terms, gene_terms
 from .sources.opentargets import OpenTargetsError
+from .sources.versions import sources_data_versions
 
 Progress = Callable[[str], None]
 Format = Literal["markdown", "json"]
@@ -120,15 +121,25 @@ class DiscoveryService:
     def _agent(self, language: str | None, progress: Progress | None) -> DiscoveryAgent:
         return DiscoveryAgent(self._settings(language), sources=self.sources, progress=progress)
 
+    def _versions(self) -> dict:
+        """Data versions, refreshed at most hourly (lookups are also HTTP-cached for a day)."""
+        now = datetime.now(timezone.utc)
+        cached = getattr(self, "_versions_cache", None)
+        if not cached or (now - cached[0]).total_seconds() > 3600:
+            self._versions_cache = (now, sources_data_versions(self.sources))
+        return self._versions_cache[1]
+
     def _remember(self, opp: Opportunity, lang: str) -> dict:
         draft = build_hypothesis(opp, lang)
+        versions = self._versions()
         refs = sorted({r.url or r.label for e in opp.evidence for r in e.references if (r.url or r.label)})
         payload = {"key": opp.key, "symbol": opp.target.symbol, "target_id": opp.target.ensembl_id,
                    "disease": opp.disease.name, "disease_id": opp.disease.id,
                    "evidence_ids": [e.id for e in opp.evidence], "references": refs,
-                   "dossier": build_dossier(opp, draft), "draft_markdown": render_hypothesis(draft, opp, lang),
-                   "quality_context": context_from_opportunity(opp),
-                   "snapshot": snapshot_from_opportunity(opp)}
+                   "dossier": {**build_dossier(opp, draft), "data_versions": versions},
+                   "draft_markdown": render_hypothesis(draft, opp, lang, versions=versions),
+                   "quality_context": context_from_opportunity(opp), "data_versions": versions,
+                   "snapshot": snapshot_from_opportunity(opp, versions)}
         self.store.save_dossier(opp.key, opp.target.symbol, opp.disease.name, payload)
         return payload
 
@@ -260,6 +271,7 @@ class DiscoveryService:
             "text_mining": [{k: x[k] for k in ("pmid", "year", "section", "text", "negative", "cue")}
                             for x in opp.text_sentences[:5]],
             "papers": papers, "literature_query": query, "warnings": opp.warnings,
+            "data_versions": self._versions(),
             "full_dossier": "discovery_analyze_pair (same pair) returns the full graded evidence table",
         }
 
@@ -416,7 +428,7 @@ class DiscoveryService:
                 continue
             reviewed += 1
             self._remember(opp, lang)
-            now = snapshot_from_opportunity(opp)
+            now = snapshot_from_opportunity(opp, self._versions())
             reasons = compare(baseline, now, lang) if baseline else []
             self.store.add_review(hid, bool(reasons), reasons, now)
             item = {"id": hid, "target": symbol, "disease": opp.disease.name, "stale": bool(reasons),

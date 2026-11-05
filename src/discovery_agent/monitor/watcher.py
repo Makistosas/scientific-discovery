@@ -150,7 +150,7 @@ class Watcher:
                 h = run.hypotheses.get(o.key)
                 if h and o.key in changed_keys:
                     self.store.save_hypothesis(watch.name, o.key, {**h.model_dump(mode="json"),
-                                                                   "snapshot": snapshot_from_opportunity(o)})
+                                                                   "snapshot": snapshot_from_opportunity(o, run.data_versions)})
 
             summary.report_path, summary.digest_path = self.write(watch, agent, run, alerts, run_id)
             self.store.add_alerts(watch.name, alerts)
