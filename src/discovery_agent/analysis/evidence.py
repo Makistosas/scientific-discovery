@@ -11,7 +11,7 @@ from collections import defaultdict
 from typing import Iterable
 
 from ..i18n import tr
-from ..models import (Aspect, AttentionMetrics, Evidence, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
+from ..models import (Aspect, AttentionMetrics, Evidence, ExpressionSummary, EvidenceType, LocusSummary, Modulation, Reference, Reliability, Stance,
                       TargetInfo)
 from ..sources.chemistry import ChemblSummary, PdbSummary, UniProtEntry
 from ..sources.clinical import TrialSearch
@@ -406,6 +406,27 @@ def locus_evidence(summary: LocusSummary, loci: list[dict], target: TargetInfo, 
         stance=Stance.SUPPORTS if summary.supported else Stance.NEUTRAL, reliability=reliability,
         reliability_rationale=tr(lang, "rel.coloc"), strength=summary.target_l2g or 0.0,
         effect_direction=direction, references=refs,
+    )
+
+
+def expression_evidence(summary: ExpressionSummary, target: TargetInfo, lang: str) -> Evidence:
+    """Baseline expression in disease-relevant tissues and the cell types with the highest expression."""
+    from .expression import describe
+
+    parts = [tr(lang, f"ev.expr.{summary.status}", symbol=target.symbol, tissues=", ".join(summary.keywords[:4]),
+                rows="; ".join(describe(r) for r in summary.relevant[:3]) or "–")]
+    if summary.top_cells:
+        parts.append(tr(lang, "ev.expr.top", cells="; ".join(describe(r) for r in summary.top_cells)))
+    if summary.breadth is not None:
+        parts.append(tr(lang, "ev.expr.breadth", pct=round(summary.breadth * 100)))
+    return Evidence(
+        source="Open Targets · baseline expression (GTEx, Tabula Sapiens, PRIDE)", type=EvidenceType.EXPRESSION,
+        aspect=Aspect.MECHANISM, summary=" ".join(parts),
+        stance=Stance.SUPPORTS if summary.status == "expressed" else Stance.NEUTRAL,
+        reliability=Reliability.B, reliability_rationale=tr(lang, "rel.baseline_expr"),
+        strength=1.0 if summary.status == "expressed" else 0.0,
+        references=[Reference(label=f"Open Targets: {target.symbol} expression",
+                              url=f"https://platform.opentargets.org/target/{target.ensembl_id}")],
     )
 
 

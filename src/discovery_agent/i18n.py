@@ -141,6 +141,31 @@ MESSAGES: dict[str, dict[str, str]] = {
     "ev.lit": {"lt": "Europe PMC: {n} publikacijos(-ų) mini {symbol} ir ligą pavadinime/santraukoje ({recent} per pastaruosius 3 m.); PubMed [tiab]: {pubmed}.",
                "en": "Europe PMC: {n} publications mention {symbol} and the disease in title/abstract ({recent} in the last 3 years); PubMed [tiab]: {pubmed}."},
     "ev.lit.parent": {"lt": " Su tėvine liga „{parent}“: {n}.", "en": " With the parent disease “{parent}”: {n}."},
+    "ev.expr.expressed": {
+        "lt": "{symbol} išreikštas ligai aktualiuose audiniuose ({tissues}): {rows}.",
+        "en": "{symbol} is expressed in disease-relevant tissues ({tissues}): {rows}."},
+    "ev.expr.low": {
+        "lt": "{symbol} ligai aktualiuose audiniuose ({tissues}) išreikštas silpnai: {rows}.",
+        "en": "{symbol} is only weakly expressed in disease-relevant tissues ({tissues}): {rows}."},
+    "ev.expr.absent": {
+        "lt": "{symbol} ligai aktualiuose audiniuose ({tissues}) neaptiktas: {rows}.",
+        "en": "{symbol} is not detected in disease-relevant tissues ({tissues}): {rows}."},
+    "ev.expr.top": {"lt": "Didžiausia raiška ląstelėse: {cells}.", "en": "Highest single-cell expression: {cells}."},
+    "ev.expr.breadth": {"lt": "Išreikštas {pct} % GTEx audinių (TPM ≥ 5).",
+                        "en": "Expressed in {pct}% of GTEx tissues (TPM ≥ 5)."},
+    "rel.baseline_expr": {
+        "lt": "Bazinė sveikų audinių raiška (atlasai); nerodo raiškos ligoje, vienos ląstelės duomenyse galimas fono užterštumas.",
+        "en": "Baseline expression in healthy tissue (atlases); not disease-state expression, and single-cell data can carry ambient contamination."},
+    "alt.othertissue.title": {"lt": "Veikia per kitą audinį", "en": "Acts through another tissue"},
+    "alt.othertissue.text": {
+        "lt": "{symbol} ligai aktualiuose audiniuose ({tissues}) išreikštas silpnai arba neaptiktas; daugiausia jo yra {where}. Genetinis ryšys gali veikti per šiuos audinius (pvz., imunines ląsteles ar cirkuliuojančius baltymus), todėl moduliuoti reikėtų ten.",
+        "en": "{symbol} is weak or undetected in disease-relevant tissues ({tissues}); it is highest in {where}. The genetic link may act through those tissues (e.g. immune cells or circulating proteins), which is where modulation would need to happen."},
+    "alt.othertissue.test": {
+        "lt": "Patikrinti raišką ligos audinių vienos ląstelės duomenyse; perturbacija didžiausios raiškos ląstelių tipe ir ko-kultūros modelis.",
+        "en": "Check expression in single-cell data from diseased tissue; perturb in the highest-expressing cell type and use a co-culture model."},
+    "unc.tissue.cells": {
+        "lt": "Neįrodyta, kuriame ląstelių tipe taikinys veikia ligą; kandidatai pagal raišką: {cells}.",
+        "en": "Unproven in which cell type the target acts on disease; candidates by expression: {cells}."},
     "ev.lit.relative": {
         "lt": " Tai {share:.2f} % visų ligos publikacijų ({disease}); {symbol} iš viso minimas {gene} publikacijose.",
         "en": " That is {share:.2f}% of all papers on the disease ({disease}); {symbol} appears in {gene} papers overall."},

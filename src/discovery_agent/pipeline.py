@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from .analysis import evidence as ev
 from .analysis.direction import infer_direction
+from .analysis.expression import assess_expression
 from .analysis.attention import attention_trend, relative_share
 from .analysis.locus import assess_loci
 from .analysis.scoring import ScoringWeights, clinical_stage_for_disease, score_opportunity
@@ -224,6 +225,12 @@ class DiscoveryPipeline:
                 items.append(ev.locus_evidence(opp.locus, loci, t, d.id, lang))
         if by_source:
             opp.direction = infer_direction(by_source)
+        if hasattr(s.opentargets, "baseline_expression"):
+            rows = self._safe(lambda: s.opentargets.baseline_expression(t.ensembl_id), opp, "Open Targets expression")
+            if rows:
+                opp.expression = assess_expression(rows, d, opp.locus)
+                if opp.expression.status:
+                    items.append(ev.expression_evidence(opp.expression, t, lang))
 
         genes = gene_terms(t.symbol, t.name)
         diseases = disease_terms(d.name, d.synonyms)

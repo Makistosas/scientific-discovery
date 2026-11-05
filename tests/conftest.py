@@ -13,7 +13,8 @@ from discovery_agent.sources.literature import Article, BioRxivClient, PubMedCli
 from discovery_agent.sources.opentargets import OpenTargetsError
 
 DISEASE = DiseaseInfo(id="EFO_0000001", name="test fibrosis", descendants=["EFO_0000002"],
-                      synonyms=["fibrotic test disease"], parents=["parent fibrosis"])
+                      synonyms=["fibrotic test disease"], parents=["parent fibrosis"],
+                      therapeutic_areas=["respiratory or thoracic disease"])
 
 TARGETS = {
     "ENSG00000000001": TargetInfo(ensembl_id="ENSG00000000001", symbol="GENEA", name="gene alpha kinase",
@@ -115,6 +116,18 @@ class FakeOpenTargets:
                         datasource_scores={"gwas_credible_sets": 0.5}),
         ]
         return t.symbol, rows
+
+    def baseline_expression(self, ensembl_id, size=2000):
+        if ensembl_id == "ENSG00000000001":  # GENEA: made in the lung
+            return [{"source": "gtex", "tissue": "lung", "cell": None, "value": 40.0, "unit": "TPM"},
+                    {"source": "gtex", "tissue": "liver", "cell": None, "value": 3.0, "unit": "TPM"},
+                    {"source": "tabula_sapiens", "tissue": "lung", "cell": "fibroblast", "value": 120.0, "unit": "CPM"}]
+        if ensembl_id == "ENSG00000000002":  # GENEB: immune cells only
+            return [{"source": "gtex", "tissue": "lung", "cell": None, "value": 0.5, "unit": "TPM"},
+                    {"source": "gtex", "tissue": "spleen", "cell": None, "value": 60.0, "unit": "TPM"},
+                    {"source": "tabula_sapiens", "tissue": "blood", "cell": "classical monocyte", "value": 300.0,
+                     "unit": "CPM"}]
+        return []
 
     def gwas_loci(self, disease_id, ensembl_id, size=8):
         if ensembl_id != "ENSG00000000004":

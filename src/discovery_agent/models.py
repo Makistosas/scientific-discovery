@@ -208,6 +208,19 @@ class ScoreBreakdown(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class ExpressionSummary(BaseModel):
+    """Baseline expression of the target in disease-relevant tissues (Open Targets: GTEx, Tabula Sapiens, PRIDE)."""
+
+    keywords: list[str] = Field(default_factory=list)   # disease-relevant tissue / cell keywords
+    keyword_source: str = "none"                        # name | qtl | area | none
+    status: str | None = None                           # expressed | low | absent | None (unknown)
+    relevant: list[dict] = Field(default_factory=list)  # best rows in relevant tissues {source,tissue,cell,value,unit}
+    relevant_gtex_tpm: float | None = None
+    top_tissue: str | None = None                       # GTEx tissue with the highest TPM
+    top_cells: list[dict] = Field(default_factory=list)       # highest single-cell expression
+    breadth: float | None = None                        # share of GTEx tissues with TPM >= 5
+
+
 class LocusSummary(BaseModel):
     """GWAS loci of the pair: competing genes (L2G) and QTL colocalisation (effect direction)."""
 
@@ -233,6 +246,7 @@ class Opportunity(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     locus_neighbors: list[str] = Field(default_factory=list)  # other GWAS-linked genes within ±500 kb
     locus: LocusSummary | None = None
+    expression: ExpressionSummary | None = None
     enriched: bool = False
     warnings: list[str] = Field(default_factory=list)
 
