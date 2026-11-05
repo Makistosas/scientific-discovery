@@ -92,6 +92,16 @@ pasitikėjimo lygį, alternatyvius paaiškinimus ir eksperimentus, kurie hipotez
   * Užuominos „slopinimas naudingas / kenkia“ nustatomos pagal raktinius žodžius. Jos nėra kryptis, o tik
     nuoroda, ką perskaityti.
   * Įrankis `read_full_text` perskaito atviros prieigos straipsnio pilną tekstą.
+* **Hipotezių kokybės patikra** (be AI, `analysis/quality.py`):
+  * Tikrinama, ar cituojami esami įrodymų ID ir aptarti prieštaraujantys įrodymai.
+  * Ar yra bent 2 alternatyvos su testais ir bent 2 eksperimentai su rezultatais „jei teisinga“ ir „jei
+    klaidinga“.
+  * Ar aptarti saugumas (įskaitant genetiškai numatomą šalutinį poveikį), neapibrėžtumai ir priežastis, kodėl
+    pora mažai ištirta.
+  * Ar kryptis neprieštarauja įrodymams, ar patikimumas nėra aukštesnis, nei leidžia įrodymų lygiai, ir ar
+    nėra perdėtų teiginių.
+  * Balas (0–100) rodomas kiekvienoje ataskaitoje. MCP jį grąžina įrankiu `discovery_check_hypothesis` ir
+    išsaugant hipotezę.
 * **Etalonas**: `discovery-agent benchmark` matuoja, ar balas aukščiau iškelia klinikinius taikinius
   20-yje ligų. Dabar AUC 0,61, top-10 – 4,8 karto dažniau, nei atsitiktinai. Žr.
   [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
@@ -281,6 +291,7 @@ Claude Code juos rodo kaip `/mcp__scientific-discovery__investigate_disease`, Cl
 | `discovery_investigate_pair` | **Viskas vienu kvietimu**, suspaustai: balai, kryptis (su kolokalizacija), lokuso konkurentai, įvertinti įrodymai, sustabdyti tyrimai, saugumas, vaistai, alternatyvos, svarbiausi santraukų sakiniai su neigiamų rezultatų žymomis (~1,8 tūkst. žetonų) |
 | `discovery_analyze_pair` | Pilnas įrodymų rinkinys (E1, E2… su A–D) ir taisyklėmis paremtas hipotezės juodraštis |
 | `discovery_search_literature`, `discovery_read_abstracts` | Europe PMC straipsniai, preprintai, patentai, santraukos |
+| `discovery_check_hypothesis` | Hipotezės juodraščio kokybės patikra be AI: įrodymų ID, prieštaravimai, alternatyvos su testais, eksperimentai su laukiamais rezultatais, saugumas, kryptis, patikimumas, perdėti teiginiai |
 | `discovery_read_full_text` | Atviros prieigos straipsnio pilnas tekstas: sakiniai apie taikinį pagal skyrius, su neigiamų rezultatų žymomis |
 | `discovery_get_open_targets_evidence`, `discovery_get_target_profile`, `discovery_get_chembl_profile`, `discovery_search_clinical_trials` | Įrodymai, taikinių profiliai, junginiai, klinikiniai tyrimai |
 | `discovery_search_entities` | Ligų, genų ir vaistų ID paieška |

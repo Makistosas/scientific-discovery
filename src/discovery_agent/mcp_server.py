@@ -30,6 +30,7 @@ from pydantic import Field
 
 from . import __version__
 from .agent import DiscoveryAgent
+from .analysis.quality import check_markdown, context_from_opportunity
 from .config import Settings
 from .hypothesis import build_hypothesis, clean_function_text
 from .i18n import normalize_lang
@@ -124,7 +125,8 @@ class DiscoveryService:
         payload = {"key": opp.key, "symbol": opp.target.symbol, "target_id": opp.target.ensembl_id,
                    "disease": opp.disease.name, "disease_id": opp.disease.id,
                    "evidence_ids": [e.id for e in opp.evidence], "references": refs,
-                   "dossier": build_dossier(opp, draft), "draft_markdown": render_hypothesis(draft, opp, lang)}
+                   "dossier": build_dossier(opp, draft), "draft_markdown": render_hypothesis(draft, opp, lang),
+                   "quality_context": context_from_opportunity(opp)}
         self.store.save_dossier(opp.key, opp.target.symbol, opp.disease.name, payload)
         return payload
 
@@ -324,6 +326,8 @@ class DiscoveryService:
         unknown_ids = [i for i in cited if i not in known_ids]
         verification = self.verify_references(markdown, set(dossier["references"]) if dossier else set(),
                                               online=verify_references)
+        quality = self.check_hypothesis(target=target, disease=disease, markdown=markdown, modulation=modulation,
+                                        confidence=confidence, _resolved=(key, symbol, dossier))
         created = _now()
         hid = f"HM-{_slug(symbol, 20)}-{hashlib.sha1(f'{key}|{created}'.encode()).hexdigest()[:8]}"
         path = self.data_dir / "hypotheses" / f"{created[:8]}_{_slug(symbol)}__{_slug(disease_id)}_{hid[-8:]}.md"
@@ -335,7 +339,7 @@ class DiscoveryService:
                   "disease_id": disease_id, "modulation": modulation, "confidence": {"level": confidence},
                   "generated_by": generated_by, "markdown": markdown, "path": str(path),
                   "dossier_found": bool(dossier), "cited_evidence_ids": cited, "unknown_evidence_ids": unknown_ids,
-                  "verification": verification}
+                  "verification": verification, "quality": quality}
         self.store.save_hypothesis("mcp", key, record)
         warnings = []
         if not dossier:
@@ -344,8 +348,29 @@ class DiscoveryService:
             warnings.append(f"Evidence ids not in the dossier: {', '.join(unknown_ids)}")
         if verification["not_found"]:
             warnings.append("References not found: " + ", ".join(r["id"] for r in verification["not_found"]))
+        if quality["verdict"] != "ready":
+            warnings.append(f"Quality check {quality['score']}/100: " + "; ".join(
+                f"[{c['severity']}] {c['message']}" for c in quality["problems"]))
         return {"id": hid, "path": str(path), "warnings": warnings, "verification": verification,
-                "cited_evidence_ids": cited}
+                "cited_evidence_ids": cited, "quality": {"score": quality["score"], "verdict": quality["verdict"]}}
+
+    def check_hypothesis(self, *, target: str, disease: str, markdown: str, modulation: str = "unknown",
+                         confidence: str = "low", _resolved: tuple | None = None) -> dict:
+        """Deterministic quality check of a Markdown hypothesis against the pair's dossier."""
+        if _resolved:
+            key, symbol, dossier = _resolved
+        else:
+            key, symbol, _ = self._resolve_key(target, disease)
+            dossier = self.store.get_dossier(key)
+        context = None
+        if dossier:
+            context = dossier.get("quality_context") or {"evidence_ids": dossier.get("evidence_ids") or [],
+                                                         "has_references": bool(dossier.get("references"))}
+        rep = check_markdown(markdown, symbol=symbol, disease=(dossier or {}).get("disease") or disease,
+                             modulation=modulation, confidence=confidence, context=context)
+        return {"score": rep.score, "verdict": rep.verdict, "dossier_found": bool(dossier),
+                "problems": [c.model_dump() for c in rep.problems],
+                "passed": [c.id for c in rep.checks if c.ok]}
 
     def list_hypotheses(self, query: str | None = None, limit: int = 20, offset: int = 0) -> dict:
         total, rows = self.store.list_hypotheses(query, limit, offset)
@@ -424,7 +449,8 @@ compact graded dossier with evidence ids E1, E2, …, direction incl. QTL coloca
 stopped trials and key abstract sentences) -> fill remaining gaps with discovery_search_literature,
 discovery_read_abstracts, discovery_read_full_text, discovery_get_open_targets_evidence, discovery_get_target_profile,
 discovery_get_chembl_profile, discovery_search_clinical_trials -> write the hypothesis yourself ->
-discovery_save_hypothesis. For recurring monitoring use discovery_run_watchlist and discovery_list_alerts.
+discovery_check_hypothesis (fix what it reports) -> discovery_save_hypothesis.
+For recurring monitoring use discovery_run_watchlist and discovery_list_alerts.
 
 Rules for hypotheses: cite evidence ids from the dossier and references (PMID, DOI, NCT id, database URL)
 exactly as tools returned them; never invent references (saving checks them). Keep causality, direction of
@@ -681,6 +707,25 @@ def build_server(service: DiscoveryService | None = None):
             target=target, disease=disease, title=title, markdown=markdown, modulation=modulation,
             confidence=confidence, generated_by=generated_by, verify_references=verify_references)))
 
+    @server.tool(name="discovery_check_hypothesis", annotations=ToolAnnotations(
+        read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+        structured_output=False)
+    def check_hypothesis(
+        target: Annotated[str, Field(description="Gene symbol or Ensembl id")],
+        disease: Annotated[str, Field(description="Disease name or id")],
+        markdown: Annotated[str, Field(min_length=50, description="The hypothesis draft in Markdown")],
+        modulation: Annotated[Literal["inhibition", "activation", "unknown"], Field()] = "unknown",
+        confidence: Annotated[Literal["high", "moderate", "low", "very_low"], Field()] = "low",
+    ) -> str:
+        """Check a hypothesis draft before saving, deterministically and offline: cited evidence ids exist,
+        contradicting evidence is discussed, ≥2 alternatives with tests, ≥2 experiments with expected results if
+        true and if false, safety (incl. genetic liabilities), uncertainties, why under-explored, direction
+        consistent with the dossier, confidence not above the evidence grades, no overclaiming. Returns a score
+        and the problems to fix. Use headings such as "Alternative explanations", "Experiments", "Safety",
+        "Uncertainties", "Why under-explored"."""
+        return _dump(call(lambda: svc().check_hypothesis(target=target, disease=disease, markdown=markdown,
+                                                         modulation=modulation, confidence=confidence)))
+
     @server.tool(name="discovery_list_hypotheses", annotations=ToolAnnotations(
         read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         structured_output=False)
@@ -751,7 +796,8 @@ def build_server(service: DiscoveryService | None = None):
             "contradicting evidence with A–D grades and references; confidence with reasons; why under-explored; "
             "≥2 alternative explanations with tests; ≥2 experiments with expected results if true/false; safety; "
             "competitive landscape; research-not-medical-advice note.\n"
-            "4. discovery_save_hypothesis for each; fix any warnings it returns and save again.\n"
+            "4. discovery_check_hypothesis for each draft and fix what it reports; then discovery_save_hypothesis "
+            "(fix any warnings it returns and save again).\n"
             "5. Finish with a short ranked summary.")
 
     @server.prompt(name="write_hypothesis", title="Write a hypothesis for one pair")
@@ -799,7 +845,7 @@ TOOL_NAMES = (
     "discovery_search_literature", "discovery_read_abstracts", "discovery_read_full_text",
     "discovery_get_open_targets_evidence",
     "discovery_get_target_profile", "discovery_get_chembl_profile", "discovery_search_clinical_trials",
-    "discovery_save_hypothesis", "discovery_list_hypotheses", "discovery_get_hypothesis",
+    "discovery_check_hypothesis", "discovery_save_hypothesis", "discovery_list_hypotheses", "discovery_get_hypothesis",
     "discovery_run_watchlist", "discovery_list_alerts", "discovery_status",
 )
 PROMPT_NAMES = ("investigate_disease", "write_hypothesis", "weekly_review")
